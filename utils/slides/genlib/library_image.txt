@@ -1,0 +1,32 @@
+## Helper functions
+
+google_search_screenshot(question, save_path)
+"""Search a question on Google, and take a screenshot of the search result.
+Save the screenshot to save_path, and return the path.
+Args:
+    question: str, The question to search on Google.
+    save_path: str, The path to save the screenshot.
+Returns:
+    The path of the saved screenshot.
+"""
+
+search_image(query, save_path)
+"""Search for an image on Google and download the result to save_path.
+Args:
+    query: str, The query to search for.
+    save_path: str, The path to save the downloaded image.
+Rets:
+    the save_path.
+"""
+
+generate_image(query, save_path)
+"""Generate an image using diffusion model based on a text query, and save the image to the path.
+Args:
+    query: str, The text query to generate the image.
+    save_path: str, The path to save the generated image.
+Rets:
+    The path of the saved image
+"""
+
+You can import all functions above by importing from the library. 
+For example, `from library import *` or `from library import {function_name}`.

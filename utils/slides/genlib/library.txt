@@ -1,0 +1,107 @@
+## Helper functions
+
+add_title(slide, text, font_size, font_color, background_color)
+"""Add a title text to the slide with custom font size and font color (RGB tuple).
+Args:
+    slide: Slide object as in pptx library
+    text: str, Title text to be added
+    font_size: int, Font size in int (point size), e.g., 44
+    font_color: tuple(int,int,int), RGB color, e.g., (0, 0, 0)
+    background_color: Optional, tuple(int,int,int), RGB color, e.g., (255, 255, 255)
+Rets:
+    slide: Slide object with the title added
+"""
+
+add_text(slide, text, coords, font_size, bold, color, background_color, auto_size)
+"""Add a text box at a specified location with custom text and color settings.
+Args:
+    slide: Slide object as in pptx library
+    text: str, Text to be added
+    coords: list(float), [left, top, width, height] in inches
+    font_size: int, Font size in int (point size), e.g., 20
+    bold: bool, True if bold-type the text, False otherwise
+    color: tuple(int,int,int), RGB color, e.g., (0, 0, 0)
+    background_color: Optional, tuple(int,int,int), RGB color, e.g., (255, 255, 255)
+    auto_size: bool, True if auto-size the text box, False otherwise
+Rets:
+    slide: Slide object with the text box added
+"""
+
+add_bullet_points(slide, bullet_points, coords, font_size, color, background_color)
+"""Add a text box with bullet points.
+Args:
+    slide: Slide object as in pptx library
+    bullet_points: list(str), List of texts to be added as bullet points
+    coords: list(float), [left, top, width, height] in inches
+    font_size: int, Font size in int (point size), e.g., 18
+    color: tuple(int,int,int), RGB color, e.g., (0, 0, 0)
+    background_color: Optional, tuple(int,int,int), RGB color, e.g., (255, 255, 255)
+Rets:
+    slide: Slide object with the bullet points added
+"""
+
+add_image(slide, image_path, coords)
+"""Add an image in the provided path to the specified coords and sizes.
+Args:
+    slide: Slide object as in pptx library
+    image_path: str, Path to the image file
+    coords: list(float), [left, top, width, height] in inches
+Rets:
+    slide: Slide object with the image added
+"""
+
+set_background_color(slide, color)
+"""Set background color for the current slide.
+Args:
+    slide: Slide object as in pptx library
+    color: tuple(int,int,int), RGB color, e.g., (255, 255, 255)
+Rets:
+    modified slide object
+"""
+
+get_answer(query)
+"""Calls the LLM by inputing a question, then get the response of the LLM as the answer.
+Args:
+    question: str, the question to ask the LLM
+Rets:
+    str, the answer from the LLM
+"""
+
+get_code(query)
+"""Calls the LLM to generate code for a request. 
+Args:
+    query: str, the task that the model should conduct
+Rets:
+    str, the generated code
+"""
+
+google_search_screenshot(question, save_path)
+"""Search a question on Google, and take a screenshot of the search result.
+Save the screenshot to save_path, and return the path.
+Args:
+    question: str, The question to search on Google.
+    save_path: str, The path to save the screenshot.
+Returns:
+    The path of the saved screenshot.
+"""
+
+search_image(query, save_path)
+"""Search for an image on Google and download the result to save_path.
+Args:
+    query: str, The query to search for.
+    save_path: str, The path to save the downloaded image.
+Rets:
+    the save_path.
+"""
+
+generate_image(query, save_path)
+"""Generate an image using diffusion model based on a text query, and save the image to the path.
+Args:
+    query: str, The text query to generate the image.
+    save_path: str, The path to save the generated image.
+Rets:
+    The path of the saved image
+"""
+
+You can import all functions above by importing from the library. 
+For example, `from library import *` or `from library import {function_name}`.
