@@ -8,6 +8,7 @@ AgenticVerifier is a multi-agent system for iterative code generation and verifi
 - 3D scene generation and validation using Blender
 - 2D slide (PPTX) generation and validation
 - Automated feedback loop between Generator and Verifier agents
+- MCP stdio-based agent communication (no manual server setup required)
 - Extensible agent and executor server architecture
 
 ## Requirements
@@ -23,7 +24,7 @@ AgenticVerifier is a multi-agent system for iterative code generation and verifi
 Install the core dependencies:
 
 ```bash
-pip install requests pillow numpy openai
+pip install requests pillow numpy openai "mcp[cli]"
 ```
 
 For 3D (Blender/Infinigen) workflows, also install:
@@ -40,23 +41,136 @@ pip install python-pptx
 
 ## Directory Structure
 
-- `main.py`: Main entry point for the dual-agent interactive loop
+- `main.py`: Main entry point for the dual-agent interactive loop (MCP-based, no server setup required)
+- `main_http.py`: Alternative HTTP-based main entry (requires manual server setup)
 - `agents/`: Core logic for Generator and Verifier agents
 - `servers/`: Executor and agent server implementations (Blender, Slides, Verifier, etc.)
 - `examples/`: Example scripts for usage and testing
+- `test_generator.py`: Standalone test script for Generator Agent
+- `test_verifier.py`: Standalone test script for Verifier Agent
 - `utils/`, `data/`: Utilities and data resources
 
 ## Quick Start
 
-### 1. Start All Required Servers
+### Recommended: Using New MCP-Based Main Script
 
-In separate terminals (or in the background), start the following servers:
+The new `main.py` uses MCP stdio connections and automatically handles agent communication without requiring manual server setup.
 
 ```bash
+export OPENAI_API_KEY=your-openai-key
+
+# For 3D (Blender) mode
+python main.py \
+  --mode 3d \
+  --init-code path/to/init.py \
+  --target-image-path path/to/target/images \
+  --max-rounds 10
+
+# For 2D (PPTX) mode  
+python main.py \
+  --mode 2d \
+  --init-code path/to/init.py \
+  --target-image-path path/to/target/images \
+  --max-rounds 10
+```
+
+**Key advantages of the new approach:**
+- ✅ **No manual server setup required** - agents connect automatically via MCP stdio
+- ✅ **Simplified deployment** - single command execution
+- ✅ **Better resource management** - automatic cleanup on exit
+- ✅ **Cleaner process management** - no orphaned server processes
+
+**Available arguments:**
+- `--mode`: Choose `3d` (Blender) or `2d` (PPTX) mode
+- `--init-code`: Path to the initial code file (**required**)
+- `--target-image-path`: Directory of target images
+- `--max-rounds`: Maximum number of interaction rounds (default: 10)
+- `--generator-script`: Path to generator MCP script (default: `agents/generator_mcp.py`)
+- `--verifier-script`: Path to verifier MCP script (default: `agents/verifier_mcp.py`)
+- `--generator-hints` / `--verifier-hints`: Optional hints for the agents
+- `--render-save`: Render save directory (default: `renders`)
+- `--code-save`: Slides code save directory for 2D mode (default: `slides_code`)
+- `--blender-url` / `--slides-url`: Executor server URLs (still HTTP-based)
+
+**Example usage:**
+
+```bash
+# 3D Blender workflow with custom parameters
+python main.py \
+  --mode 3d \
+  --init-code examples/blender_init.py \
+  --target-image-path data/target_renders \
+  --generator-hints "Focus on realistic lighting and materials" \
+  --verifier-hints "Check for proper object placement and lighting" \
+  --max-rounds 15 \
+  --render-save output/renders
+
+# 2D PPTX workflow
+python main.py \
+  --mode 2d \
+  --init-code examples/slides_init.py \
+  --target-image-path data/target_slides \
+  --generator-hints "Create professional slide layouts" \
+  --verifier-hints "Ensure text readability and visual consistency" \
+  --max-rounds 8 \
+  --code-save output/slides
+```
+
+### Individual Component Testing
+
+Before running the full dual-agent system, you can test each component individually:
+
+#### Test Generator Agent
+
+```bash
+export OPENAI_API_KEY=your-openai-key
+
+python test_generator.py \
+  --init-code "print('Hello, World!')" \
+  --generator-hints "Generate clean, well-commented code"
+```
+
+**Available options:**
+- `--generator-script`: Path to generator MCP script (default: `agents/generator_mcp.py`)
+- `--vision-model`: OpenAI vision model (default: `gpt-4o`)
+- `--thoughtprocess-save`: Path to save thought process (default: `test_generator_thought.json`)
+- `--max-rounds`: Maximum rounds (default: 5)
+- `--generator-hints`: Hints for generator
+- `--init-code`: Initial code to work with
+- `--init-image-path`: Path to initial images
+- `--target-image-path`: Path to target images
+- `--target-description`: Target description
+
+#### Test Verifier Agent
+
+```bash
+export OPENAI_API_KEY=your-openai-key
+
+python test_verifier.py \
+  --verifier-hints "Focus on identifying key visual differences"
+```
+
+**Available options:**
+- `--verifier-script`: Path to verifier MCP script (default: `agents/verifier_mcp.py`)
+- `--vision-model`: OpenAI vision model (default: `gpt-4o`)
+- `--thoughtprocess-save`: Path to save thought process (default: `test_verifier_thought.json`)
+- `--max-rounds`: Maximum rounds (default: 3)
+- `--verifier-hints`: Hints for verifier
+- `--blender-save`: Blender save path
+
+The verifier test will automatically create test images to demonstrate the verification functionality.
+
+### Alternative: Manual Server Setup (Legacy)
+
+If you need more control or want to use the legacy HTTP-based approach, you can use `main_http.py` with manual server setup:
+
+```bash
+# In separate terminals:
+
 # Generator Agent server
 python agents/generator_mcp.py
 
-# Verifier Agent server
+# Verifier Agent server  
 python agents/verifier_mcp.py
 
 # Blender Executor server (for 3D mode)
@@ -68,59 +182,72 @@ python servers/generator/slides.py
 # Verifier image/scene servers
 python servers/verifier/image.py
 python servers/verifier/scene.py
+
+# Then run the main script
+python main_http.py --mode 3d --init-code path/to/init.py
 ```
 
-### 2. Run the Main Dual-Agent Loop
-
-**For 3D (Blender) mode:**
-
-```bash
-export OPENAI_API_KEY=your-openai-key
-
-python main.py \
-  --mode 3d \
-  --init-code path/to/init.py \
-  --target-image-path path/to/target/images \
-  --max-rounds 10
-```
-
-**For 2D (PPTX) mode:**
-
-```bash
-python main.py \
-  --mode 2d \
-  --init-code path/to/init.py \
-  --target-image-path path/to/target/images \
-  --max-rounds 10
-```
-
-**Common arguments:**
-- `--init-code`: Path to the initial code file
-- `--target-image-path`: Directory of target images
-- `--max-rounds`: Maximum number of interaction rounds
-- `--generator-hints` / `--verifier-hints`: (Optional) Hints for the agents
-- `--render-save` / `--code-save`: Output directories for renders or code
-
-### 3. Example Scripts
+### Example Scripts
 
 See the `examples/` directory for ready-to-run scripts:
 
 **Generator example:**
 ```bash
-python examples/generator_mcp_usage.py --mode blender --init-code path/to/init.py --api-key your-openai-key
+python examples/generator_mcp_usage.py --mode blender --init-code path/to/init.py
 ```
 
 **Verifier example:**
 ```bash
-python examples/verifier_mcp_usage.py --api-key your-openai-key --target-image-path path/to/target/images
+python examples/verifier_mcp_usage.py --target-image-path path/to/target/images
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Import Error for MCP**: Make sure you have installed `"mcp[cli]"`:
+   ```bash
+   pip install "mcp[cli]"
+   ```
+
+2. **OpenAI API Key**: Ensure your API key is set:
+   ```bash
+   export OPENAI_API_KEY=your-openai-key
+   ```
+
+3. **Missing Dependencies**: Install all required packages:
+   ```bash
+   pip install requests pillow numpy openai "mcp[cli]"
+   ```
+
+4. **Blender Not Found**: For 3D mode, ensure Blender is installed and available in PATH.
+
+5. **Agent Connection Issues**: The new MCP-based approach should handle connections automatically. If you encounter issues, check that the agent script paths are correct:
+   ```bash
+   ls agents/generator_mcp.py agents/verifier_mcp.py
+   ```
+
+6. **Executor Server Issues**: Note that Blender and Slides executors still require separate HTTP servers. Make sure they're running before starting the main script.
+
+## Migration from HTTP to MCP
+
+If you're upgrading from the old HTTP-based approach:
+
+1. **Use the new `main.py`** instead of manually starting agent servers
+2. **Agent servers are now auto-started** via MCP stdio connections
+3. **Executor servers still need manual setup** (Blender, Slides, etc.)
+4. **Arguments have changed**: `--generator-url` and `--verifier-url` are replaced with `--generator-script` and `--verifier-script`
 
 ## Notes
 
+- **Recommended approach**: Use the new MCP-based `main.py` for easier setup and better resource management
 - 3D mode requires Blender installed and available in your system PATH
-- 2D PPTX mode requires `unoconv` and LibreOffice
+- 2D PPTX mode requires `unoconv` and LibreOffice  
 - The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable
 - Python 3.8+ is recommended
+- Start with individual component testing before running the full system
+- Agent communication is now handled via MCP stdio (no HTTP servers needed for agents)
+- Executor servers (Blender, Slides) still use HTTP and need to be started separately
 
 ## Contributing
 

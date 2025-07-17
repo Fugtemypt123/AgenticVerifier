@@ -285,7 +285,7 @@ def main():
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def generate_code(feedback: str = None) -> dict:
         """
@@ -298,7 +298,7 @@ def main():
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def add_feedback(feedback: str) -> dict:
         """
@@ -311,7 +311,7 @@ def main():
             return {"status": "success", "message": "Feedback added successfully"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def save_thought_process() -> dict:
         """
@@ -324,7 +324,7 @@ def main():
             return {"status": "success", "message": "Thought process saved successfully"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def get_memory() -> dict:
         """
@@ -337,7 +337,7 @@ def main():
             return {"memory": memory}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def reset_memory() -> dict:
         """
@@ -350,7 +350,7 @@ def main():
             return {"status": "success", "message": "Memory reset successfully"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     mcp.run(transport="stdio")
 
 

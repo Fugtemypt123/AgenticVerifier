@@ -601,7 +601,7 @@ def main():
     """Main function to run the MCP Verifier Agent as an MCP server."""
     mcp = FastMCP("verifier")
     agent = MCPVerifierAgent()
-
+    
     @mcp.tool()
     def create_verification_session(
         vision_model: str,
@@ -632,7 +632,7 @@ def main():
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def verify_scene(session_id: str, code: str, render_path: str, round_num: int) -> dict:
         """
@@ -643,7 +643,7 @@ def main():
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def exec_pil_code(code: str) -> dict:
         """
@@ -655,7 +655,7 @@ def main():
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def compare_images(path1: str, path2: str, api_key: str) -> dict:
         """
@@ -667,7 +667,7 @@ def main():
             return {"description": result}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def save_thought_process(session_id: str) -> dict:
         """
@@ -681,7 +681,7 @@ def main():
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def get_session_info(session_id: str) -> dict:
         """
@@ -692,7 +692,7 @@ def main():
             return info
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def get_memory(session_id: str) -> dict:
         """
@@ -703,7 +703,7 @@ def main():
             return {"memory": memory}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def list_sessions() -> dict:
         """
@@ -714,7 +714,7 @@ def main():
             return {"sessions": sessions}
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def delete_session(session_id: str) -> dict:
         """
@@ -728,7 +728,7 @@ def main():
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     @mcp.tool()
     def reset_session_memory(session_id: str) -> dict:
         """
@@ -742,7 +742,7 @@ def main():
             }
         except Exception as e:
             return {"status": "error", "error": str(e)}
-
+    
     mcp.run(transport="stdio")
 
 
