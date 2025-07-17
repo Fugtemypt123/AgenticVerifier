@@ -11,6 +11,8 @@ from pathlib import Path
 from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from prompts.blender import blender_generator_hints, blender_verifier_hints
+from prompts.slides import slides_generator_hints, slides_verifier_hints
 
 api_key = os.getenv("OPENAI_API_KEY")
 
@@ -113,13 +115,14 @@ async def main():
                        help="Path to save thought process")
     parser.add_argument("--max-rounds", type=int, default=5,
                        help="Maximum number of rounds")
-    parser.add_argument("--generator-hints", default="Generate clean, well-commented code",
+    parser.add_argument("--generator-hints", default=blender_generator_hints["shape"],
                        help="Hints for generator")
-    parser.add_argument("--init-code", default="# Initial test code\nprint('Hello World')",
+    initial_code = Path("/home/shaofengyin/AgenticVerifier/data/blendergym/blendshape1/start.py").read_text()
+    parser.add_argument("--init-code", default=initial_code,
                        help="Initial code")
-    parser.add_argument("--init-image-path", default="data/blendergym/blendshape1/renders/start/render1.png",
+    parser.add_argument("--init-image-path", default="/home/shaofengyin/AgenticVerifier/data/blendergym/blendshape1/renders/start",
                        help="Path to initial images")
-    parser.add_argument("--target-image-path", default="data/blendergym/blendshape1/renders/goal/render1.png",
+    parser.add_argument("--target-image-path", default="/home/shaofengyin/AgenticVerifier/data/blendergym/blendshape1/renders/goal",
                        help="Path to target images")
     parser.add_argument("--target-description", default="A simple test scene",
                        help="Target description")

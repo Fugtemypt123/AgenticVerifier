@@ -94,6 +94,8 @@ class GeneratorAgent:
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_1)}"}
             })
+        else:
+            logging.error(f"Initial image {init_image_path_1} does not exist!")
         
         init_image_path_2 = os.path.join(init_image_path, 'render2.png')
         if os.path.exists(init_image_path_2):
@@ -117,6 +119,8 @@ class GeneratorAgent:
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
             })
+        else:
+            logging.error(f"Target image {target_image_path_1} does not exist!")
         
         target_image_path_2 = os.path.join(target_image_path, 'render2.png')
         if os.path.exists(target_image_path_2):
