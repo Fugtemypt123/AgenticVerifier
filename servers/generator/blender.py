@@ -7,7 +7,12 @@ from pathlib import Path
 from PIL import Image
 import logging
 from typing import Tuple, Dict
-from mcp import McpServer, ToolResult
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("blender-executor")
+
+# Global executor instance
+_executor = None
 
 class Executor:
     def __init__(self,
@@ -73,22 +78,19 @@ class Executor:
         img_b64 = self._encode_image(str(render_file))
         return {"status": "success", "output": img_b64, "stdout": stdout, "stderr": stderr}
 
-def main():
-    server = McpServer()
-
-    @server.tool()
-    def exec_script(blender_command: str,
-                    blender_file: str,
-                    blender_script: str,
-                    code: str,
-                    round: int,
-                    script_save: str,
-                    render_save: str,
-                    blender_save: str = None) -> ToolResult:
-        """
-        执行传入的 Blender Python 脚本 code，并返回 base64 编码后的渲染图像。
-        """
-        executor = Executor(
+@mcp.tool()
+def initialize_executor(blender_command: str,
+                       blender_file: str,
+                       blender_script: str,
+                       script_save: str,
+                       render_save: str,
+                       blender_save: str = None) -> dict:
+    """
+    初始化 Blender 执行器，设置所有必要的参数。
+    """
+    global _executor
+    try:
+        _executor = Executor(
             blender_command=blender_command,
             blender_file=blender_file,
             blender_script=blender_script,
@@ -96,13 +98,28 @@ def main():
             render_save=render_save,
             blender_save=blender_save
         )
-        try:
-            result = executor.execute(code, round)
-            return ToolResult(result=result)
-        except Exception as e:
-            return ToolResult(isError=True, error=str(e))
+        return {"status": "success", "message": "Executor initialized successfully"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
-    server.run()
+@mcp.tool()
+def exec_script(code: str, round: int) -> dict:
+    """
+    执行传入的 Blender Python 脚本 code，并返回 base64 编码后的渲染图像。
+    需要先调用 initialize_executor 进行初始化。
+    """
+    global _executor
+    if _executor is None:
+        return {"status": "error", "error": "Executor not initialized. Call initialize_executor first."}
+    
+    try:
+        result = _executor.execute(code, round)
+        return {"status": "success", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+def main():
+    mcp.run(transport="stdio")
 
 if __name__ == "__main__":
     main()

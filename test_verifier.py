@@ -13,6 +13,9 @@ from contextlib import AsyncExitStack
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from PIL import Image, ImageDraw
+from prompts.blender import blender_verifier_hints
+
+api_key = os.getenv("OPENAI_API_KEY")
 
 class VerifierTester:
     def __init__(self):
@@ -85,7 +88,7 @@ class VerifierTester:
             print("Step 1: Creating verification session...")
             session_result = await self.session.call_tool("create_verification_session", {
                 "vision_model": args.vision_model,
-                "api_key": args.api_key,
+                "api_key": api_key,
                 "thoughtprocess_save": args.thoughtprocess_save,
                 "max_rounds": args.max_rounds,
                 "verifier_hints": args.verifier_hints,
@@ -205,13 +208,11 @@ async def main():
                        help="Path to verifier MCP script")
     parser.add_argument("--vision-model", default="gpt-4o",
                        help="OpenAI vision model to use")
-    parser.add_argument("--api-key", required=True,
-                       help="OpenAI API key")
     parser.add_argument("--thoughtprocess-save", default="test_verifier_thought.json",
                        help="Path to save thought process")
     parser.add_argument("--max-rounds", type=int, default=3,
                        help="Maximum number of rounds")
-    parser.add_argument("--verifier-hints", default="Focus on identifying key visual differences",
+    parser.add_argument("--verifier-hints", default=blender_verifier_hints["shape"],
                        help="Hints for verifier")
     parser.add_argument("--blender-save", default=None,
                        help="Blender save path")
