@@ -117,9 +117,9 @@ async def main():
                        help="Hints for generator")
     parser.add_argument("--init-code", default="# Initial test code\nprint('Hello World')",
                        help="Initial code")
-    parser.add_argument("--init-image-path", default=None,
+    parser.add_argument("--init-image-path", default="data/blendergym/blendshape1/renders/start/render1.png",
                        help="Path to initial images")
-    parser.add_argument("--target-image-path", default=None,
+    parser.add_argument("--target-image-path", default="data/blendergym/blendshape1/renders/goal/render1.png",
                        help="Path to target images")
     parser.add_argument("--target-description", default="A simple test scene",
                        help="Target description")
