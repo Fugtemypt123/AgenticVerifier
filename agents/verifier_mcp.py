@@ -83,9 +83,23 @@ class ExternalToolClient:
             print(f"Connected to Image server with tools: {[tool.name for tool in tools]}")
             
         except asyncio.TimeoutError:
+            # Clean up on timeout
+            await self._cleanup_on_error()
             raise RuntimeError(f"Failed to connect to Image server: Connection timeout after {self.connection_timeout}s")
         except Exception as e:
+            # Clean up on any error
+            await self._cleanup_on_error()
             raise RuntimeError(f"Failed to connect to Image server: {str(e)}")
+    
+    async def _cleanup_on_error(self):
+        """Clean up connections on error, ignoring any cleanup errors."""
+        try:
+            if hasattr(self, 'image_session') and self.image_session:
+                self.image_session = None
+            if hasattr(self, 'scene_session') and self.scene_session:
+                self.scene_session = None
+        except Exception:
+            pass  # Ignore cleanup errors
     
     async def connect_scene_server(self, scene_server_path: str):
         """Connect to the scene investigation MCP server with timeout."""
@@ -122,8 +136,12 @@ class ExternalToolClient:
             print(f"Connected to Scene server with tools: {[tool.name for tool in tools]}")
             
         except asyncio.TimeoutError:
+            # Clean up on timeout
+            await self._cleanup_on_error()
             raise RuntimeError(f"Failed to connect to Scene server: Connection timeout after {self.connection_timeout}s")
         except Exception as e:
+            # Clean up on any error
+            await self._cleanup_on_error()
             raise RuntimeError(f"Failed to connect to Scene server: {str(e)}")
     
     async def exec_pil_code(self, code: str) -> Dict:
@@ -715,7 +733,7 @@ def main():
         max_rounds: int = 10,
         verifier_hints: str = None,
         target_image_path: str = None,
-        blender_save: str = None,
+        blender_save: Optional[str] = None,
         image_server_path: str = "servers/verifier/image.py",
         scene_server_path: str = "servers/verifier/scene.py"
     ) -> dict:

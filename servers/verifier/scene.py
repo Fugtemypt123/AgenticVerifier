@@ -6,7 +6,7 @@ import tempfile
 import os
 from pathlib import Path
 import logging
-from mcp import McpServer, ToolContext, ToolResult
+from mcp.server.fastmcp import FastMCP
 
 # 内置工具
 
@@ -152,31 +152,31 @@ class Investigator3D:
 # MCP Server 主体
 
 def main():
-    server = McpServer()
+    server = FastMCP("scene-server")
 
     @server.tool()
-    def get_scene_info(blender_path: str) -> ToolResult:
+    def get_scene_info(blender_path: str) -> dict:
         info = GetSceneInfo(Path(blender_path)).get_info()
-        return ToolResult(result=info)
+        return info
 
     @server.tool()
-    def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) -> ToolResult:
+    def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) -> dict:
         img = Investigator3D(save_dir, blender_path, round_num).focus_on_object(object_name)
-        return ToolResult(result={"image": img})
+        return {"image": img}
 
     @server.tool()
-    def zoom(save_dir: str, direction: str) -> ToolResult:
+    def zoom(save_dir: str, direction: str) -> dict:
         inst = Investigator3D(save_dir, "", 0)  # 注意：可重构以保持状态
         img = inst.zoom(direction)
-        return ToolResult(result={"image": img})
+        return {"image": img}
 
     @server.tool()
-    def move(save_dir: str, direction: str) -> ToolResult:
+    def move(save_dir: str, direction: str) -> dict:
         inst = Investigator3D(save_dir, "", 0)
         img = inst.move_camera(direction)
-        return ToolResult(result={"image": img})
+        return {"image": img}
 
-    server.run()
+    server.run(transport="stdio")
 
 if __name__ == "__main__":
     main()

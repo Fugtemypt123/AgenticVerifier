@@ -385,7 +385,7 @@ async def main():
                        help="Maximum number of rounds")
     parser.add_argument("--verifier-hints", default=blender_verifier_hints["shape"],
                        help="Hints for verifier")
-    parser.add_argument("--blender-save", default=None,
+    parser.add_argument("--blender-save", default="_test",
                        help="Blender save path")
     
     # Tool server paths

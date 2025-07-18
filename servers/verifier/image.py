@@ -8,7 +8,7 @@ from io import StringIO
 from PIL import Image, ImageChops, ImageEnhance
 import numpy as np
 from typing import Dict
-from mcp import McpServer, ToolResult
+from mcp.server.fastmcp import FastMCP
 import logging
 import openai
 
@@ -117,24 +117,24 @@ class ImageDifferentiationTool:
         return response.choices[0].message.content
 
 def main():
-    server = McpServer()
+    server = FastMCP("image-server")
 
     @server.tool()
-    def exec_pil_code(code: str) -> ToolResult:
+    def exec_pil_code(code: str) -> dict:
         tool = PILExecutor()
-        return ToolResult(result=tool.execute(code))
+        return tool.execute(code)
 
     @server.tool()
-    def compare_images(path1: str, path2: str) -> ToolResult:
+    def compare_images(path1: str, path2: str) -> dict:
         try:
             tool = ImageDifferentiationTool()
             result = tool.describe_difference(path1, path2)
-            return ToolResult(result={"description": result})
+            return {"description": result}
         except Exception as e:
             logging.error(f"Comparison failed: {e}")
-            return ToolResult(isError=True, error=str(e))
+            return {"error": str(e)}
 
-    server.run()
+    server.run(transport="stdio")
 
 if __name__ == "__main__":
     main()
