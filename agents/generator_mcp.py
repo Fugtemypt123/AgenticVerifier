@@ -7,6 +7,71 @@ from openai import OpenAI
 from typing import Dict, List, Optional, Any
 import logging
 from mcp.server.fastmcp import FastMCP
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from contextlib import AsyncExitStack
+
+class ExternalBlenderClient:
+    """Client for connecting to external Blender MCP server."""
+    
+    def __init__(self):
+        self.blender_session = None
+        self.exit_stack = AsyncExitStack()
+        self._initialized = False
+    
+    async def connect_blender_server(self, blender_server_path: str):
+        """Connect to the Blender execution MCP server."""
+        server_params = StdioServerParameters(
+            command="python",
+            args=[blender_server_path],
+            env=None
+        )
+        
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        stdio, write = stdio_transport
+        self.blender_session = await self.exit_stack.enter_async_context(
+            ClientSession(stdio, write)
+        )
+        await self.blender_session.initialize()
+    
+    async def initialize_executor(self, blender_command: str, blender_file: str, 
+                                blender_script: str, script_save: str, 
+                                render_save: str, blender_save: Optional[str] = None) -> Dict:
+        """Initialize the Blender executor using external server."""
+        if not self.blender_session:
+            raise RuntimeError("Blender server not connected")
+        
+        result = await self.blender_session.call_tool("initialize_executor", {
+            "blender_command": blender_command,
+            "blender_file": blender_file,
+            "blender_script": blender_script,
+            "script_save": script_save,
+            "render_save": render_save,
+            "blender_save": blender_save
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        self._initialized = True
+        return content
+    
+    async def exec_script(self, code: str, round_num: int) -> Dict:
+        """Execute script using external server."""
+        if not self.blender_session:
+            raise RuntimeError("Blender server not connected")
+        if not self._initialized:
+            raise RuntimeError("Blender executor not initialized")
+        
+        result = await self.blender_session.call_tool("exec_script", {
+            "code": code,
+            "round": round_num
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        return content
+    
+    async def cleanup(self):
+        """Clean up connections."""
+        await self.exit_stack.aclose()
 
 class GeneratorAgent:
     """
@@ -23,7 +88,8 @@ class GeneratorAgent:
                  init_code: Optional[str] = None,
                  init_image_path: Optional[str] = None,
                  target_image_path: Optional[str] = None,
-                 target_description: Optional[str] = None):
+                 target_description: Optional[str] = None,
+                 blender_server_path: Optional[str] = None):
         """
         Initialize the Generator Agent.
         
@@ -37,6 +103,7 @@ class GeneratorAgent:
             init_image_path: Path to initial images
             target_image_path: Path to target images
             target_description: Description of target
+            blender_server_path: Path to external Blender MCP server
         """
         self.model = vision_model
         self.api_key = api_key
@@ -44,6 +111,13 @@ class GeneratorAgent:
         self.thoughtprocess_save = thoughtprocess_save
         self.max_rounds = max_rounds
         self.memory = []
+        self.current_round = 0
+        
+        # Blender execution setup
+        self.blender_client = ExternalBlenderClient()
+        self.blender_server_path = blender_server_path
+        self._blender_connected = False
+        self.blender_config = {}
         
         # Initialize memory if initial parameters are provided
         if all([init_code, init_image_path, target_image_path]):
@@ -51,6 +125,30 @@ class GeneratorAgent:
                 generator_hints, init_code, init_image_path, 
                 target_image_path, target_description
             )
+    
+    async def _ensure_blender_connected(self):
+        """Ensure Blender server is connected."""
+        if not self._blender_connected and self.blender_server_path:
+            await self.blender_client.connect_blender_server(self.blender_server_path)
+            self._blender_connected = True
+    
+    async def setup_blender_executor(self, blender_command: str, blender_file: str,
+                                   blender_script: str, script_save: str,
+                                   render_save: str, blender_save: Optional[str] = None):
+        """Setup the Blender executor with configuration."""
+        await self._ensure_blender_connected()
+        
+        self.blender_config = {
+            "blender_command": blender_command,
+            "blender_file": blender_file,
+            "blender_script": blender_script,
+            "script_save": script_save,
+            "render_save": render_save,
+            "blender_save": blender_save
+        }
+        
+        result = await self.blender_client.initialize_executor(**self.blender_config)
+        return result
     
     def _build_system_prompt(self, hints: str, init_code: str, init_image_path: str, 
                            target_image_path: str, target_description: str = None) -> List[Dict]:
@@ -187,7 +285,7 @@ class GeneratorAgent:
         
         return None, None, full
     
-    def generate_code(self, feedback: Optional[str] = None) -> Dict[str, Any]:
+    async def generate_code(self, feedback: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate code based on current memory and optional feedback.
         
@@ -209,18 +307,31 @@ class GeneratorAgent:
             _, _, full_code = self._parse_generate_response(generate_response)
             self.memory.append({"role": "assistant", "content": generate_response})
             
+            self.current_round += 1
+            
+            # Automatically execute the generated code with Blender if configured
+            execution_result = None
+            if self.blender_config and self._blender_connected:
+                try:
+                    execution_result = await self.blender_client.exec_script(full_code, self.current_round)
+                    logging.info(f"Blender execution completed for round {self.current_round}")
+                except Exception as e:
+                    logging.error(f"Blender execution failed: {e}")
+                    execution_result = {"status": "error", "error": str(e)}
+            
             return {
                 "status": "success",
                 "code": full_code,
                 "response": generate_response,
-                "round": len([msg for msg in self.memory if msg["role"] == "assistant"])
+                "round": self.current_round,
+                "execution_result": execution_result
             }
         except Exception as e:
             logging.error(f"Code generation failed: {e}")
             return {
                 "status": "error",
                 "error": str(e),
-                "round": len([msg for msg in self.memory if msg["role"] == "assistant"])
+                "round": self.current_round
             }
     
     def add_feedback(self, feedback: str) -> None:
@@ -247,6 +358,11 @@ class GeneratorAgent:
     def reset_memory(self) -> None:
         """Reset the agent's memory."""
         self.memory = []
+        self.current_round = 0
+    
+    async def cleanup(self) -> None:
+        """Clean up external connections."""
+        await self.blender_client.cleanup()
 
 
 def main():
@@ -265,7 +381,8 @@ def main():
         init_code: str = None,
         init_image_path: str = None,
         target_image_path: str = None,
-        target_description: str = None
+        target_description: str = None,
+        blender_server_path: str = "servers/generator/blender.py"
     ) -> dict:
         """
         Initialize a new Generator Agent.
@@ -280,7 +397,8 @@ def main():
                 init_code=init_code,
                 init_image_path=init_image_path,
                 target_image_path=target_image_path,
-                target_description=target_description
+                target_description=target_description,
+                blender_server_path=blender_server_path
             )
             agent_holder['agent'] = agent
             return {
@@ -291,14 +409,41 @@ def main():
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    def generate_code(feedback: str = None) -> dict:
+    async def setup_blender_executor(
+        blender_command: str,
+        blender_file: str,
+        blender_script: str,
+        script_save: str,
+        render_save: str,
+        blender_save: str = None
+    ) -> dict:
+        """
+        Setup the Blender executor with configuration.
+        """
+        try:
+            if 'agent' not in agent_holder:
+                return {"status": "error", "error": "Generator Agent not initialized. Call initialize_generator first."}
+            result = await agent_holder['agent'].setup_blender_executor(
+                blender_command=blender_command,
+                blender_file=blender_file,
+                blender_script=blender_script,
+                script_save=script_save,
+                render_save=render_save,
+                blender_save=blender_save
+            )
+            return result
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    @mcp.tool()
+    async def generate_code(feedback: str = None) -> dict:
         """
         Generate code using the initialized Generator Agent.
         """
         try:
             if 'agent' not in agent_holder:
                 return {"status": "error", "error": "Generator Agent not initialized. Call initialize_generator first."}
-            result = agent_holder['agent'].generate_code(feedback)
+            result = await agent_holder['agent'].generate_code(feedback)
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
@@ -352,6 +497,19 @@ def main():
                 return {"status": "error", "error": "Generator Agent not initialized. Call initialize_generator first."}
             agent_holder['agent'].reset_memory()
             return {"status": "success", "message": "Memory reset successfully"}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    
+    @mcp.tool()
+    async def cleanup_generator() -> dict:
+        """
+        Clean up the Generator Agent and its connections.
+        """
+        try:
+            if 'agent' not in agent_holder:
+                return {"status": "error", "error": "Generator Agent not initialized. Call initialize_generator first."}
+            await agent_holder['agent'].cleanup()
+            return {"status": "success", "message": "Generator Agent cleaned up successfully"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     

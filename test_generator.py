@@ -1,4 +1,4 @@
- #!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Standalone test script for the Generator Agent.
 This script connects to the generator MCP server and demonstrates its functionality.
@@ -21,7 +21,6 @@ api_key = os.getenv("OPENAI_API_KEY")
 class GeneratorTester:
     def __init__(self):
         self.generator_session: Optional[ClientSession] = None
-        self.blender_session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
 
     async def connect_to_generator(self, generator_script_path: str):
@@ -43,25 +42,6 @@ class GeneratorTester:
         tools = response.tools
         print(f"Connected to Generator with tools: {[tool.name for tool in tools]}")
 
-    async def connect_to_blender_executor(self, blender_script_path: str):
-        """Connect to the Blender Executor MCP server."""
-        server_params = StdioServerParameters(
-            command="python",
-            args=[blender_script_path],
-            env=None
-        )
-        
-        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-        stdio, write = stdio_transport
-        self.blender_session = await self.exit_stack.enter_async_context(ClientSession(stdio, write))
-        
-        await self.blender_session.initialize()
-        
-        # List available tools
-        response = await self.blender_session.list_tools()
-        tools = response.tools
-        print(f"Connected to Blender Executor with tools: {[tool.name for tool in tools]}")
-
     def _extract_code_from_result(self, result):
         """Extract generated code from the result."""
         if result.content and len(result.content) > 0:
@@ -71,12 +51,25 @@ class GeneratorTester:
                 try:
                     # Parse JSON response to extract code
                     json_data = json.loads(content)
-                    if 'current_code' in json_data:
+                    if 'code' in json_data:
+                        return json_data['code']
+                    elif 'current_code' in json_data:
                         return json_data['current_code']
                     elif 'generated_code' in json_data:
                         return json_data['generated_code']
-                    elif 'code' in json_data:
-                        return json_data['code']
+                except json.JSONDecodeError:
+                    pass
+        return None
+
+    def _extract_execution_result(self, result):
+        """Extract execution result from the result."""
+        if result.content and len(result.content) > 0:
+            content_item = result.content[0]
+            if isinstance(content_item, TextContent):
+                content = content_item.text
+                try:
+                    json_data = json.loads(content)
+                    return json_data.get('execution_result')
                 except json.JSONDecodeError:
                     pass
         return None
@@ -101,7 +94,8 @@ class GeneratorTester:
             "init_code": args.init_code,
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
-            "target_description": args.target_description
+            "target_description": args.target_description,
+            "blender_server_path": args.blender_server_path
         })
         print(f"Initialization result: {init_result.content}")
         
@@ -109,25 +103,24 @@ class GeneratorTester:
             print("Failed to initialize generator")
             return
         
-        # 2. Initialize Blender executor
-        if self.blender_session:
-            print("Step 2: Initializing Blender executor...")
-            blender_init_result = await self.blender_session.call_tool("initialize_executor", {
-                "blender_command": args.blender_command,
-                "blender_file": args.blender_file,
-                "blender_script": args.blender_script,
-                "script_save": args.script_save,
-                "render_save": args.render_save,
-                "blender_save": args.blender_save
-            })
-            print(f"Blender executor initialization result: {blender_init_result.content}")
-            
-            if not self._is_success(blender_init_result):
-                print("Failed to initialize Blender executor")
-                return
+        # 2. Setup Blender executor
+        print("Step 2: Setting up Blender executor...")
+        blender_setup_result = await self.generator_session.call_tool("setup_blender_executor", {
+            "blender_command": args.blender_command,
+            "blender_file": args.blender_file,
+            "blender_script": args.blender_script,
+            "script_save": args.script_save,
+            "render_save": args.render_save,
+            "blender_save": args.blender_save
+        })
+        print(f"Blender setup result: {blender_setup_result.content}")
         
-        # 3. Generate initial code
-        print("\nStep 3: Generating initial code...")
+        if not self._is_success(blender_setup_result):
+            print("Failed to setup Blender executor")
+            return
+        
+        # 3. Generate initial code (with automatic Blender execution)
+        print("\nStep 3: Generating initial code (with automatic execution)...")
         gen_result = await self.generator_session.call_tool("generate_code", {})
         print(f"Generation result: {gen_result.content}")
         
@@ -135,59 +128,45 @@ class GeneratorTester:
             print("Failed to generate initial code")
             return
         
-        # 4. Execute generated code with Blender
-        print("\nStep 4: Executing generated code with Blender...")
-        generated_code = self._extract_code_from_result(gen_result)
-        if generated_code and self.blender_session:
-            try:
-                blender_result = await self.blender_session.call_tool("exec_script", {
-                    "code": generated_code,
-                    "round": 1
-                })
-                print(f"Blender execution result: {blender_result.content}")
-                
-                # Extract execution status for feedback
-                blender_content = "{}"
-                if blender_result.content and len(blender_result.content) > 0:
-                    content_item = blender_result.content[0]
-                    if isinstance(content_item, TextContent):
-                        blender_content = content_item.text
-                
-                try:
-                    blender_json = json.loads(blender_content)
-                    if blender_json.get("status") == "success":
-                        print("✅ Blender execution successful!")
-                        execution_feedback = "Code executed successfully in Blender and rendered an image."
-                    else:
-                        print("❌ Blender execution failed!")
-                        execution_feedback = f"Code execution failed: {blender_json.get('error', 'Unknown error')}"
-                except json.JSONDecodeError:
-                    execution_feedback = "Could not parse Blender execution result."
-            except Exception as e:
-                print(f"Error executing code with Blender: {e}")
-                execution_feedback = f"Blender execution error: {str(e)}"
+        # Check if Blender execution happened automatically
+        execution_result = self._extract_execution_result(gen_result)
+        if execution_result:
+            print("✅ Automatic Blender execution completed!")
+            if execution_result.get('status') == 'success':
+                print("   - Blender execution was successful")
+                blender_result = execution_result.get('result', {})
+                if blender_result.get('status') == 'success':
+                    print("   - Image rendering successful")
+                else:
+                    print(f"   - Image rendering failed: {blender_result.get('output', 'Unknown error')}")
+            else:
+                print(f"   - Blender execution failed: {execution_result.get('error', 'Unknown error')}")
         else:
-            execution_feedback = "No code extracted for Blender execution or Blender not connected."
-            print("⚠️  Skipping Blender execution")
+            print("⚠️  No automatic Blender execution detected")
         
-        # 5. Add feedback and generate again
-        print("\nStep 5: Adding feedback and generating again...")
-        combined_feedback = f"The code looks good, but please add more comments to explain the logic. Blender execution feedback: {execution_feedback}"
+        # 4. Add feedback and generate again
+        print("\nStep 4: Adding feedback and generating again...")
+        feedback_text = "The code looks good, but please add more detailed comments to explain each step."
         feedback_result = await self.generator_session.call_tool("add_feedback", {
-            "feedback": combined_feedback
+            "feedback": feedback_text
         })
         print(f"Feedback result: {feedback_result.content}")
         
         gen_result2 = await self.generator_session.call_tool("generate_code", {})
         print(f"Second generation result: {gen_result2.content}")
         
-        # 6. Save thought process
-        print("\nStep 6: Saving thought process...")
+        # Check second execution
+        execution_result2 = self._extract_execution_result(gen_result2)
+        if execution_result2:
+            print("✅ Second automatic Blender execution completed!")
+        
+        # 5. Save thought process
+        print("\nStep 5: Saving thought process...")
         save_result = await self.generator_session.call_tool("save_thought_process", {})
         print(f"Save result: {save_result.content}")
         
-        # 7. Get memory
-        print("\nStep 7: Getting memory...")
+        # 6. Get memory
+        print("\nStep 6: Getting memory...")
         memory_result = await self.generator_session.call_tool("get_memory", {})
         memory_length = 0
         if memory_result.content and len(memory_result.content) > 0:
@@ -195,6 +174,11 @@ class GeneratorTester:
             if isinstance(content_item, TextContent):
                 memory_length = len(content_item.text)
         print(f"Memory length: {memory_length}")
+        
+        # 7. Test cleanup
+        print("\nStep 7: Testing cleanup...")
+        cleanup_result = await self.generator_session.call_tool("cleanup_generator", {})
+        print(f"Cleanup result: {cleanup_result.content}")
         
         print("\n=== Generator Test Complete ===")
 
@@ -215,8 +199,6 @@ async def main():
     parser = argparse.ArgumentParser(description="Test Generator Agent")
     parser.add_argument("--generator-script", default="agents/generator_mcp.py",
                        help="Path to generator MCP script")
-    parser.add_argument("--executor-script", default="servers/generator/blender.py",
-                       help="Path to Blender executor MCP script")
     parser.add_argument("--vision-model", default="gpt-4o",
                        help="OpenAI vision model to use")
     parser.add_argument("--thoughtprocess-save", default="_test/test_generator_thought.json",
@@ -249,6 +231,10 @@ async def main():
     parser.add_argument("--blender-save", default=None,
                        help="Optional Blender save file")
     
+    # Tool server paths
+    parser.add_argument("--blender-server-path", default="servers/generator/blender.py",
+                       help="Path to Blender MCP server script")
+    
     args = parser.parse_args()
     
     # Validate required files
@@ -256,17 +242,17 @@ async def main():
         print(f"Error: Generator script not found: {args.generator_script}")
         sys.exit(1)
     
-    if not os.path.exists(args.executor_script):
-        print(f"Error: Blender script not found: {args.executor_script}")
-        sys.exit(1)
+    # Create output directory
+    os.makedirs("_test", exist_ok=True)
     
     tester = GeneratorTester()
     try:
         await tester.connect_to_generator(args.generator_script)
-        await tester.connect_to_blender_executor(args.executor_script)
         await tester.test_generator_workflow(args)
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         await tester.cleanup()
 

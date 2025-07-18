@@ -1,15 +1,9 @@
 import os
 import json
 import uuid
-from PIL import Image, ImageChops, ImageEnhance
+from PIL import Image
 import io
 import base64
-import numpy as np
-import math
-import tempfile
-import sys
-import traceback
-from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 import logging
@@ -17,6 +11,9 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from openai import OpenAI
 from mcp.server.fastmcp import FastMCP
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from contextlib import AsyncExitStack
 
 @dataclass
 class VerificationSession:
@@ -41,142 +38,120 @@ class VerificationSession:
     def from_dict(cls, data: Dict) -> 'VerificationSession':
         return cls(**data)
 
-class PILExecutor:
-    """PIL code execution tool for image processing."""
+class ExternalToolClient:
+    """Client for connecting to external MCP tool servers."""
     
     def __init__(self):
-        self._setup_environment()
-
-    def _setup_environment(self):
-        self.globals = {
-            'Image': Image,
-            'io': io,
-            'base64': base64,
-            'current_image': None,
-            'result': None
-        }
-
-    def _image_to_base64(self, image: Image.Image) -> str:
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return base64.b64encode(buf.getvalue()).decode()
-
-    def execute(self, code: str) -> Dict:
-        stdout_capture = StringIO()
-        stderr_capture = StringIO()
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = stdout_capture, stderr_capture
-
-        try:
-            exec(code, self.globals)
-            result = self.globals.get('result', None)
-            if isinstance(result, Image.Image):
-                result = self._image_to_base64(result)
-            return {
-                'success': True,
-                'result': result,
-                'stdout': stdout_capture.getvalue(),
-                'stderr': stderr_capture.getvalue()
-            }
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'stdout': stdout_capture.getvalue(),
-                'stderr': stderr_capture.getvalue() + traceback.format_exc()
-            }
-        finally:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
-
-class ImageDifferentiationTool:
-    """Tool for comparing and analyzing image differences."""
+        self.image_session = None
+        self.scene_session = None
+        self.exit_stack = AsyncExitStack()
     
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.client = OpenAI(api_key=self.api_key)
-
-    def pil_to_base64(self, image: Image.Image) -> str:
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-    def _highlight_differences(self, img1, img2, diff, threshold=50):
-        img1_array = np.array(img1)
-        img2_array = np.array(img2)
-        diff_array = np.array(diff)
-        mask = np.any(diff_array > threshold, axis=2)
-
-        highlight = np.array([255, 0, 0])
-        img1_high = img1_array.copy()
-        img2_high = img2_array.copy()
-
-        img1_high[mask] = ((img1_high[mask] * 0.5 + highlight * 0.5)).astype(np.uint8)
-        img2_high[mask] = ((img2_high[mask] * 0.5 + highlight * 0.5)).astype(np.uint8)
-
-        return Image.fromarray(img1_high), Image.fromarray(img2_high)
-
-    def describe_difference(self, path1: str, path2: str) -> str:
-        img1 = Image.open(path1).convert("RGB")
-        img2 = Image.open(path2).convert("RGB")
-        if img1.size != img2.size:
-            img2 = img2.resize(img1.size)
-
-        diff = ImageChops.difference(img1, img2)
-        img1_high, img2_high = self._highlight_differences(img1, img2, diff)
-
-        enhancer = ImageEnhance.Brightness(diff)
-        diff_bright = enhancer.enhance(4.0)
-
-        b64s = [self.pil_to_base64(im) for im in [img1, img2, img1_high, img2_high]]
-
-        messages = [
-            {"role": "system", "content": "You are an expert in image comparison."},
-            {"role": "user", "content": [
-                {"type": "text", "text": "Compare the two original images and describe the highlighted red difference."},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[0]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[1]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[2]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[3]}"}},
-            ]}
-        ]
-
-        response = self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            max_tokens=512
+    async def connect_image_server(self, image_server_path: str):
+        """Connect to the image processing MCP server."""
+        server_params = StdioServerParameters(
+            command="python",
+            args=[image_server_path],
+            env=None
         )
-        return response.choices[0].message.content
-
-class Investigator3D:
-    """3D scene investigation tool for Blender scenes."""
+        
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        stdio, write = stdio_transport
+        self.image_session = await self.exit_stack.enter_async_context(
+            ClientSession(stdio, write)
+        )
+        await self.image_session.initialize()
     
-    def __init__(self, thoughtprocess_save: str, blender_path: str, round_num: int):
-        # Note: This would need to be run in a Blender environment
-        # For now, we'll create a mock implementation
-        self.base = Path(thoughtprocess_save) / f"investigator_{round_num}"
-        self.base.mkdir(parents=True, exist_ok=True)
-        self.blender_path = blender_path
-        self.round_num = round_num
-        self.count = 0
-
-    def focus_on_object(self, object_name: str) -> str:
-        """Focus camera on a specific object."""
-        # Mock implementation - in real usage this would use Blender Python API
-        output_path = str(self.base / f"{self.count:03d}_focus_{object_name}.png")
-        self.count += 1
-        return output_path
-
-    def zoom(self, direction: str) -> str:
-        """Zoom camera in or out."""
-        output_path = str(self.base / f"{self.count:03d}_zoom_{direction}.png")
-        self.count += 1
-        return output_path
-
-    def move_camera(self, direction: str) -> str:
-        """Move camera in specified direction."""
-        output_path = str(self.base / f"{self.count:03d}_move_{direction}.png")
-        self.count += 1
-        return output_path
+    async def connect_scene_server(self, scene_server_path: str):
+        """Connect to the scene investigation MCP server."""
+        server_params = StdioServerParameters(
+            command="python", 
+            args=[scene_server_path],
+            env=None
+        )
+        
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        stdio, write = stdio_transport
+        self.scene_session = await self.exit_stack.enter_async_context(
+            ClientSession(stdio, write)
+        )
+        await self.scene_session.initialize()
+    
+    async def exec_pil_code(self, code: str) -> Dict:
+        """Execute PIL code using external server."""
+        if not self.image_session:
+            raise RuntimeError("Image server not connected")
+        
+        result = await self.image_session.call_tool("exec_pil_code", {"code": code})
+        return json.loads(result.content[0].text) if result.content else {}
+    
+    async def compare_images(self, path1: str, path2: str) -> str:
+        """Compare images using external server."""
+        if not self.image_session:
+            raise RuntimeError("Image server not connected")
+        
+        result = await self.image_session.call_tool("compare_images", {
+            "path1": path1, 
+            "path2": path2
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        return content.get("description", "")
+    
+    async def get_scene_info(self, blender_path: str) -> Dict:
+        """Get scene information using external server."""
+        if not self.scene_session:
+            raise RuntimeError("Scene server not connected")
+        
+        result = await self.scene_session.call_tool("get_scene_info", {
+            "blender_path": blender_path
+        })
+        return json.loads(result.content[0].text) if result.content else {}
+    
+    async def focus_on_object(self, blender_path: str, save_dir: str, 
+                            round_num: int, object_name: str) -> str:
+        """Focus on object using external server."""
+        if not self.scene_session:
+            raise RuntimeError("Scene server not connected")
+        
+        result = await self.scene_session.call_tool("focus", {
+            "blender_path": blender_path,
+            "save_dir": save_dir,
+            "round_num": round_num,
+            "object_name": object_name
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        return content.get("image", "")
+    
+    async def zoom_camera(self, save_dir: str, direction: str) -> str:
+        """Zoom camera using external server."""
+        if not self.scene_session:
+            raise RuntimeError("Scene server not connected")
+        
+        result = await self.scene_session.call_tool("zoom", {
+            "save_dir": save_dir,
+            "direction": direction
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        return content.get("image", "")
+    
+    async def move_camera(self, save_dir: str, direction: str) -> str:
+        """Move camera using external server."""
+        if not self.scene_session:
+            raise RuntimeError("Scene server not connected")
+        
+        result = await self.scene_session.call_tool("move", {
+            "save_dir": save_dir,
+            "direction": direction
+        })
+        content = json.loads(result.content[0].text) if result.content else {}
+        return content.get("image", "")
+    
+    async def cleanup(self):
+        """Clean up connections."""
+        await self.exit_stack.aclose()
 
 class MCPVerifierAgent:
     """
@@ -184,10 +159,23 @@ class MCPVerifierAgent:
     This agent follows the MCP server pattern with session management and tool integration.
     """
     
-    def __init__(self):
+    def __init__(self, image_server_path: str = None, scene_server_path: str = None):
         """Initialize the MCP Verifier Agent."""
         self.sessions: Dict[str, VerificationSession] = {}
         self.logger = logging.getLogger(__name__)
+        self.tool_client = ExternalToolClient()
+        self.image_server_path = image_server_path
+        self.scene_server_path = scene_server_path
+        self._tools_connected = False
+    
+    async def _ensure_tools_connected(self):
+        """Ensure external tool servers are connected."""
+        if not self._tools_connected:
+            if self.image_server_path:
+                await self.tool_client.connect_image_server(self.image_server_path)
+            if self.scene_server_path:
+                await self.tool_client.connect_scene_server(self.scene_server_path)
+            self._tools_connected = True
     
     def create_session(self, 
                       vision_model: str,
@@ -313,7 +301,7 @@ If the current scene is very close to the target scene, only output an "OK!" and
             self.logger.error(f"Failed to convert image to base64: {e}")
             return ""
     
-    def verify_scene(self, session_id: str, code: str, render_path: str, round_num: int) -> Dict[str, Any]:
+    async def verify_scene(self, session_id: str, code: str, render_path: str, round_num: int) -> Dict[str, Any]:
         """
         Verify a scene against the target.
         
@@ -371,27 +359,6 @@ If the current scene is very close to the target scene, only output an "OK!" and
         
         verify_message["content"].append({"type": "text", "text": output_format})
         
-        # Add image differentiation if available
-        if session.target_image_path:
-            diff_content = "Below I will provide you with some visual differences identified by some tools. These tools are more capable than you are, use their results to improve your visual difference identification. When the tool says 'No difference', it means you can select OK."
-            
-            try:
-                image_diff_tool = ImageDifferentiationTool(session.api_key)
-                target_image_path_1 = os.path.join(session.target_image_path, 'render1.png')
-                
-                if os.path.exists(target_image_path_1):
-                    view1_diff = image_diff_tool.describe_difference(view1_path, target_image_path_1)
-                    diff_content += f"\nView1: The differences between the current scene (first image) and the target scene (second image) are as follows: {view1_diff}"
-                
-                target_image_path_2 = os.path.join(session.target_image_path, 'render2.png')
-                if os.path.exists(view2_path) and os.path.exists(target_image_path_2):
-                    view2_diff = image_diff_tool.describe_difference(view2_path, target_image_path_2)
-                    diff_content += f"\nView2: The differences between the current scene (first image) and the target scene (second image) are as follows: {view2_diff}"
-                
-                verify_message["content"].append({"type": "text", "text": diff_content})
-            except Exception as e:
-                self.logger.warning(f"Image differentiation failed: {e}")
-        
         session.memory.append(verify_message)
         
         # Start verification loop
@@ -413,7 +380,7 @@ If the current scene is very close to the target scene, only output an "OK!" and
                 # Handle tool calls and get analysis
                 if message.tool_calls:
                     for tool_call in message.tool_calls:
-                        tool_response = self._handle_tool_call(tool_call, session)
+                        tool_response = await self._handle_tool_call(tool_call, session)
                         session.memory.append({
                             "role": "tool", 
                             "tool_call_id": tool_call.id, 
@@ -487,28 +454,53 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
                         "required": ["operation"]
                     }
                 }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "compare_images",
+                    "description": """A tool for comparing two images and identifying visual differences. This tool is more capable at identifying subtle differences than visual inspection alone. It highlights differences in red and provides detailed descriptions of what has changed between the images. Use this tool when you need to precisely identify differences between current and target scenes.""",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "current_image_path": {
+                                "type": "string",
+                                "description": "Path to the current scene image"
+                            },
+                            "target_image_path": {
+                                "type": "string", 
+                                "description": "Path to the target scene image to compare against"
+                            },
+                            "view_name": {
+                                "type": "string",
+                                "description": "Optional name for the view being compared (e.g., 'view1', 'view2')"
+                            }
+                        },
+                        "required": ["current_image_path", "target_image_path"]
+                    }
+                }
             }
         ]
     
-    def _handle_tool_call(self, tool_call, session) -> Dict[str, Any]:
+    async def _handle_tool_call(self, tool_call, session) -> Dict[str, Any]:
         """Handle tool calls from the model."""
         function_name = tool_call.function.name
         function_args = json.loads(tool_call.function.arguments)
         
         try:
             if function_name == "investigate_3d":
-                # Initialize the 3D investigator
-                investigator = Investigator3D(
-                    session.thoughtprocess_save, 
-                    session.blender_save or "", 
-                    session.current_round
-                )
+                await self._ensure_tools_connected()
                 
                 # Handle different operations
                 if function_args['operation'] == 'focus':
                     if 'object_name' not in function_args:
                         raise ValueError("object_name is required for focus operation")
-                    output = investigator.focus_on_object(object_name=function_args['object_name'])
+                    output = await self.tool_client.focus_on_object(
+                        session.blender_save or "", 
+                        session.thoughtprocess_save, 
+                        session.current_round, 
+                        function_args['object_name']
+                    )
                     if output:
                         return {'text': f"Focused camera on object: {function_args['object_name']}", 'image': output}
                     else:
@@ -517,7 +509,10 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
                 elif function_args['operation'] == 'zoom':
                     if 'direction' not in function_args:
                         raise ValueError("direction is required for zoom operation")
-                    output = investigator.zoom(direction=function_args['direction'])
+                    output = await self.tool_client.zoom_camera(
+                        session.thoughtprocess_save, 
+                        function_args['direction']
+                    )
                     if output:
                         return {'text': f"Zoomed {function_args['direction']}", 'image': output}
                     else:
@@ -526,7 +521,10 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
                 elif function_args['operation'] == 'move':
                     if 'direction' not in function_args:
                         raise ValueError("direction is required for move operation")
-                    output = investigator.move_camera(direction=function_args['direction'])
+                    output = await self.tool_client.move_camera(
+                        session.thoughtprocess_save, 
+                        function_args['direction']
+                    )
                     if output:
                         return {'text': f"Moved camera {function_args['direction']}", 'image': output}
                     else:
@@ -534,6 +532,30 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
                 
                 else:
                     raise ValueError(f"Unknown operation: {function_args['operation']}")
+            
+            elif function_name == "compare_images":
+                await self._ensure_tools_connected()
+                
+                current_image_path = function_args.get('current_image_path')
+                target_image_path = function_args.get('target_image_path')
+                view_name = function_args.get('view_name', 'comparison')
+                
+                if not current_image_path or not target_image_path:
+                    raise ValueError("Both current_image_path and target_image_path are required")
+                
+                # Check if files exist
+                if not os.path.exists(current_image_path):
+                    raise ValueError(f"Current image not found: {current_image_path}")
+                if not os.path.exists(target_image_path):
+                    raise ValueError(f"Target image not found: {target_image_path}")
+                
+                diff_description = await self.tool_client.compare_images(current_image_path, target_image_path)
+                
+                return {
+                    'text': f"Image comparison result for {view_name}: {diff_description}",
+                    'image': None
+                }
+            
             else:
                 raise ValueError(f"Unknown tool: {function_name}")
                 
@@ -595,13 +617,19 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
         session.memory = []
         session.current_round = 0
         session.last_updated = datetime.now().isoformat()
+    
+    async def cleanup(self) -> None:
+        """Clean up external tool client connections."""
+        await self.tool_client.cleanup()
 
 
 def main():
     """Main function to run the MCP Verifier Agent as an MCP server."""
     mcp = FastMCP("verifier")
-    agent = MCPVerifierAgent()
     
+    # Store agent instances per session to handle different tool server paths
+    agent_instances = {}
+
     @mcp.tool()
     def create_verification_session(
         vision_model: str,
@@ -610,12 +638,23 @@ def main():
         max_rounds: int = 10,
         verifier_hints: str = None,
         target_image_path: str = None,
-        blender_save: str = None
+        blender_save: str = None,
+        image_server_path: str = "servers/verifier/image.py",
+        scene_server_path: str = "servers/verifier/scene.py"
     ) -> dict:
         """
         Create a new verification session.
         """
         try:
+            # Create or get agent instance for these tool server paths
+            agent_key = f"{image_server_path}:{scene_server_path}"
+            if agent_key not in agent_instances:
+                agent_instances[agent_key] = MCPVerifierAgent(
+                    image_server_path=image_server_path,
+                    scene_server_path=scene_server_path
+                )
+            
+            agent = agent_instances[agent_key]
             session_id = agent.create_session(
                 vision_model=vision_model,
                 api_key=api_key,
@@ -634,36 +673,58 @@ def main():
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    def verify_scene(session_id: str, code: str, render_path: str, round_num: int) -> dict:
+    async def verify_scene(session_id: str, code: str, render_path: str, round_num: int) -> dict:
         """
         Verify a scene against the target.
         """
         try:
-            result = agent.verify_scene(session_id, code, render_path, round_num)
-            return result
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    result = await agent.verify_scene(session_id, code, render_path, round_num)
+                    return result
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    def exec_pil_code(code: str) -> dict:
+    async def exec_pil_code(code: str, image_server_path: str = "servers/verifier/image.py") -> dict:
         """
         Execute PIL code for image processing.
         """
         try:
-            tool = PILExecutor()
-            result = tool.execute(code)
+            # Create or get agent instance for this image server path
+            agent_key = f"{image_server_path}:"
+            if agent_key not in agent_instances:
+                agent_instances[agent_key] = MCPVerifierAgent(
+                    image_server_path=image_server_path,
+                    scene_server_path=None
+                )
+            
+            agent = agent_instances[agent_key]
+            await agent._ensure_tools_connected()
+            result = await agent.tool_client.exec_pil_code(code)
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    def compare_images(path1: str, path2: str, api_key: str) -> dict:
+    async def compare_images(path1: str, path2: str, image_server_path: str = "servers/verifier/image.py") -> dict:
         """
         Compare two images and describe differences.
         """
         try:
-            tool = ImageDifferentiationTool(api_key)
-            result = tool.describe_difference(path1, path2)
+            # Create or get agent instance for this image server path
+            agent_key = f"{image_server_path}:"
+            if agent_key not in agent_instances:
+                agent_instances[agent_key] = MCPVerifierAgent(
+                    image_server_path=image_server_path,
+                    scene_server_path=None
+                )
+            
+            agent = agent_instances[agent_key]
+            await agent._ensure_tools_connected()
+            result = await agent.tool_client.compare_images(path1, path2)
             return {"description": result}
         except Exception as e:
             return {"status": "error", "error": str(e)}
@@ -674,11 +735,15 @@ def main():
         Save the thought process for a session.
         """
         try:
-            agent.save_thought_process(session_id)
-            return {
-                "status": "success",
-                "message": "Thought process saved successfully"
-            }
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    agent.save_thought_process(session_id)
+                    return {
+                        "status": "success",
+                        "message": "Thought process saved successfully"
+                    }
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -688,8 +753,12 @@ def main():
         Get information about a session.
         """
         try:
-            info = agent.get_session_info(session_id)
-            return info
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    info = agent.get_session_info(session_id)
+                    return info
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -699,8 +768,12 @@ def main():
         Get the memory for a session.
         """
         try:
-            memory = agent.get_memory(session_id)
-            return {"memory": memory}
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    memory = agent.get_memory(session_id)
+                    return {"memory": memory}
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -710,8 +783,11 @@ def main():
         List all active sessions.
         """
         try:
-            sessions = agent.list_sessions()
-            return {"sessions": sessions}
+            all_sessions = []
+            for agent in agent_instances.values():
+                sessions = agent.list_sessions()
+                all_sessions.extend(sessions)
+            return {"sessions": all_sessions}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -721,11 +797,15 @@ def main():
         Delete a session.
         """
         try:
-            agent.delete_session(session_id)
-            return {
-                "status": "success",
-                "message": "Session deleted successfully"
-            }
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    agent.delete_session(session_id)
+                    return {
+                        "status": "success",
+                        "message": "Session deleted successfully"
+                    }
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -735,11 +815,15 @@ def main():
         Reset the memory for a session.
         """
         try:
-            agent.reset_session_memory(session_id)
-            return {
-                "status": "success",
-                "message": "Session memory reset successfully"
-            }
+            # Find the agent that has this session
+            for agent in agent_instances.values():
+                if session_id in agent.sessions:
+                    agent.reset_session_memory(session_id)
+                    return {
+                        "status": "success",
+                        "message": "Session memory reset successfully"
+                    }
+            return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
