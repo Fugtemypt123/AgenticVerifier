@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 from PIL import Image
@@ -18,60 +19,105 @@ class ExternalBlenderClient:
         self.blender_session = None
         self.exit_stack = AsyncExitStack()
         self._initialized = False
+        self.connection_timeout = 30  # 30 seconds timeout
     
     async def connect_blender_server(self, blender_server_path: str):
-        """Connect to the Blender execution MCP server."""
-        server_params = StdioServerParameters(
-            command="python",
-            args=[blender_server_path],
-            env=None
-        )
-        
-        stdio_transport = await self.exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
-        stdio, write = stdio_transport
-        self.blender_session = await self.exit_stack.enter_async_context(
-            ClientSession(stdio, write)
-        )
-        await self.blender_session.initialize()
+        """Connect to the Blender execution MCP server with timeout."""
+        try:
+            # Add timeout to prevent hanging
+            server_params = StdioServerParameters(
+                command="python",
+                args=[blender_server_path],
+                env=None
+            )
+            
+            # Use asyncio.wait_for to add timeout
+            stdio_transport = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(stdio_client(server_params)),
+                timeout=self.connection_timeout
+            )
+            stdio, write = stdio_transport
+            
+            self.blender_session = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(ClientSession(stdio, write)),
+                timeout=self.connection_timeout
+            )
+            
+            await asyncio.wait_for(
+                self.blender_session.initialize(),
+                timeout=self.connection_timeout
+            )
+            
+            # List available tools
+            response = await asyncio.wait_for(
+                self.blender_session.list_tools(),
+                timeout=10  # Shorter timeout for tool listing
+            )
+            tools = response.tools
+            print(f"Connected to Executor with tools: {[tool.name for tool in tools]}")
+            
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Failed to connect to Blender server: Connection timeout after {self.connection_timeout}s")
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Blender server: {str(e)}")
     
     async def initialize_executor(self, blender_command: str, blender_file: str, 
                                 blender_script: str, script_save: str, 
                                 render_save: str, blender_save: Optional[str] = None) -> Dict:
-        """Initialize the Blender executor using external server."""
+        """Initialize the Blender executor using external server with timeout."""
         if not self.blender_session:
             raise RuntimeError("Blender server not connected")
         
-        result = await self.blender_session.call_tool("initialize_executor", {
-            "blender_command": blender_command,
-            "blender_file": blender_file,
-            "blender_script": blender_script,
-            "script_save": script_save,
-            "render_save": render_save,
-            "blender_save": blender_save
-        })
-        content = json.loads(result.content[0].text) if result.content else {}
-        self._initialized = True
-        return content
+        try:
+            result = await asyncio.wait_for(
+                self.blender_session.call_tool("initialize_executor", {
+                    "blender_command": blender_command,
+                    "blender_file": blender_file,
+                    "blender_script": blender_script,
+                    "script_save": script_save,
+                    "render_save": render_save,
+                    "blender_save": blender_save
+                }),
+                timeout=30  # 30 seconds for initialization
+            )
+            content = json.loads(result.content[0].text) if result.content else {}
+            self._initialized = True
+            return content
+        except asyncio.TimeoutError:
+            raise RuntimeError("Blender executor initialization timeout after 30s")
+        except Exception as e:
+            raise RuntimeError(f"Blender executor initialization failed: {str(e)}")
     
     async def exec_script(self, code: str, round_num: int) -> Dict:
-        """Execute script using external server."""
+        """Execute script using external server with timeout."""
         if not self.blender_session:
             raise RuntimeError("Blender server not connected")
         if not self._initialized:
             raise RuntimeError("Blender executor not initialized")
         
-        result = await self.blender_session.call_tool("exec_script", {
-            "code": code,
-            "round": round_num
-        })
-        content = json.loads(result.content[0].text) if result.content else {}
-        return content
+        try:
+            result = await asyncio.wait_for(
+                self.blender_session.call_tool("exec_script", {
+                    "code": code,
+                    "round": round_num
+                }),
+                timeout=60  # 60 seconds for script execution
+            )
+            content = json.loads(result.content[0].text) if result.content else {}
+            return content
+        except asyncio.TimeoutError:
+            raise RuntimeError("Blender script execution timeout after 60s")
+        except Exception as e:
+            raise RuntimeError(f"Blender script execution failed: {str(e)}")
     
     async def cleanup(self):
-        """Clean up connections."""
-        await self.exit_stack.aclose()
+        """Clean up connections with timeout."""
+        try:
+            await asyncio.wait_for(self.exit_stack.aclose(), timeout=10)
+        except asyncio.TimeoutError:
+            logging.warning("Cleanup timeout, forcing close")
+        except Exception as e:
+            logging.warning(f"Cleanup error: {e}")
 
 class GeneratorAgent:
     """
@@ -372,7 +418,7 @@ def main():
     agent_holder = {}
 
     @mcp.tool()
-    def initialize_generator(
+    async def initialize_generator(
         vision_model: str,
         api_key: str,
         thoughtprocess_save: str,
@@ -382,10 +428,17 @@ def main():
         init_image_path: str = None,
         target_image_path: str = None,
         target_description: str = None,
-        blender_server_path: str = "servers/generator/blender.py"
+        blender_server_path: str = "servers/generator/blender.py",
+        # Blender executor parameters
+        blender_command: str = None,
+        blender_file: str = None,
+        blender_script: str = None,
+        script_save: str = None,
+        render_save: str = None,
+        blender_save: Optional[str] = None
     ) -> dict:
         """
-        Initialize a new Generator Agent.
+        Initialize a new Generator Agent with optional Blender executor setup.
         """
         try:
             agent = GeneratorAgent(
@@ -401,39 +454,45 @@ def main():
                 blender_server_path=blender_server_path
             )
             agent_holder['agent'] = agent
-            return {
-                "status": "success",
-                "message": "Generator Agent initialized successfully"
-            }
+            
+            # If Blender parameters are provided, setup executor automatically
+            if all([blender_command, blender_file, blender_script, script_save, render_save]):
+                try:
+                    setup_result = await agent.setup_blender_executor(
+                        blender_command=blender_command,
+                        blender_file=blender_file,
+                        blender_script=blender_script,
+                        script_save=script_save,
+                        render_save=render_save,
+                        blender_save=blender_save
+                    )
+                    
+                    if setup_result.get("status") == "success":
+                        return {
+                            "status": "success",
+                            "message": "Generator Agent and Blender executor initialized successfully"
+                        }
+                    else:
+                        return {
+                            "status": "partial_success",
+                            "message": "Generator Agent initialized successfully, but Blender executor setup failed",
+                            "blender_error": setup_result.get("error", "Unknown error")
+                        }
+                except Exception as e:
+                    return {
+                        "status": "partial_success",
+                        "message": "Generator Agent initialized successfully, but Blender executor setup failed",
+                        "blender_error": str(e)
+                    }
+            else:
+                return {
+                    "status": "success",
+                    "message": "Generator Agent initialized successfully (Blender executor not configured)"
+                }
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
-    @mcp.tool()
-    async def setup_blender_executor(
-        blender_command: str,
-        blender_file: str,
-        blender_script: str,
-        script_save: str,
-        render_save: str,
-        blender_save: str = None
-    ) -> dict:
-        """
-        Setup the Blender executor with configuration.
-        """
-        try:
-            if 'agent' not in agent_holder:
-                return {"status": "error", "error": "Generator Agent not initialized. Call initialize_generator first."}
-            result = await agent_holder['agent'].setup_blender_executor(
-                blender_command=blender_command,
-                blender_file=blender_file,
-                blender_script=blender_script,
-                script_save=script_save,
-                render_save=render_save,
-                blender_save=blender_save
-            )
-            return result
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+
     
     @mcp.tool()
     async def generate_code(feedback: str = None) -> dict:

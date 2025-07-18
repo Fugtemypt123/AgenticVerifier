@@ -629,7 +629,7 @@ def main():
     
     # Store agent instances per session to handle different tool server paths
     agent_instances = {}
-
+    
     @mcp.tool()
     def create_verification_session(
         vision_model: str,
@@ -682,7 +682,7 @@ def main():
             for agent in agent_instances.values():
                 if session_id in agent.sessions:
                     result = await agent.verify_scene(session_id, code, render_path, round_num)
-                    return result
+            return result
             return {"status": "error", "error": f"Session {session_id} not found"}
         except Exception as e:
             return {"status": "error", "error": str(e)}

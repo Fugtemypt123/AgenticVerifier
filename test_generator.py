@@ -83,8 +83,8 @@ class GeneratorTester:
             print("Error: Generator session not initialized")
             return
         
-        # 1. Initialize generator
-        print("Step 1: Initializing generator...")
+        # 1. Initialize generator with Blender executor
+        print("Step 1: Initializing generator with Blender executor...")
         init_result = await self.generator_session.call_tool("initialize_generator", {
             "vision_model": args.vision_model,
             "api_key": api_key,
@@ -95,17 +95,8 @@ class GeneratorTester:
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
             "target_description": args.target_description,
-            "blender_server_path": args.blender_server_path
-        })
-        print(f"Initialization result: {init_result.content}")
-        
-        if not self._is_success(init_result):
-            print("Failed to initialize generator")
-            return
-        
-        # 2. Setup Blender executor
-        print("Step 2: Setting up Blender executor...")
-        blender_setup_result = await self.generator_session.call_tool("setup_blender_executor", {
+            "blender_server_path": args.blender_server_path,
+            # Blender executor parameters
             "blender_command": args.blender_command,
             "blender_file": args.blender_file,
             "blender_script": args.blender_script,
@@ -113,14 +104,17 @@ class GeneratorTester:
             "render_save": args.render_save,
             "blender_save": args.blender_save
         })
-        print(f"Blender setup result: {blender_setup_result.content}")
+        print(f"Initialization result: {init_result.content}")
         
-        if not self._is_success(blender_setup_result):
-            print("Failed to setup Blender executor")
+        if not self._is_success(init_result):
+            print("Failed to initialize generator")
             return
         
-        # 3. Generate initial code (with automatic Blender execution)
-        print("\nStep 3: Generating initial code (with automatic execution)...")
+        # Check if Blender executor was also set up
+        self._check_blender_setup(init_result)
+        
+        # 2. Generate initial code (with automatic Blender execution)
+        print("\nStep 2: Generating initial code (with automatic execution)...")
         gen_result = await self.generator_session.call_tool("generate_code", {})
         print(f"Generation result: {gen_result.content}")
         
@@ -144,8 +138,8 @@ class GeneratorTester:
         else:
             print("⚠️  No automatic Blender execution detected")
         
-        # 4. Add feedback and generate again
-        print("\nStep 4: Adding feedback and generating again...")
+        # 3. Add feedback and generate again
+        print("\nStep 3: Adding feedback and generating again...")
         feedback_text = "The code looks good, but please add more detailed comments to explain each step."
         feedback_result = await self.generator_session.call_tool("add_feedback", {
             "feedback": feedback_text
@@ -160,13 +154,13 @@ class GeneratorTester:
         if execution_result2:
             print("✅ Second automatic Blender execution completed!")
         
-        # 5. Save thought process
-        print("\nStep 5: Saving thought process...")
+        # 4. Save thought process
+        print("\nStep 4: Saving thought process...")
         save_result = await self.generator_session.call_tool("save_thought_process", {})
         print(f"Save result: {save_result.content}")
         
-        # 6. Get memory
-        print("\nStep 6: Getting memory...")
+        # 5. Get memory
+        print("\nStep 5: Getting memory...")
         memory_result = await self.generator_session.call_tool("get_memory", {})
         memory_length = 0
         if memory_result.content and len(memory_result.content) > 0:
@@ -175,8 +169,8 @@ class GeneratorTester:
                 memory_length = len(content_item.text)
         print(f"Memory length: {memory_length}")
         
-        # 7. Test cleanup
-        print("\nStep 7: Testing cleanup...")
+        # 6. Test cleanup
+        print("\nStep 6: Testing cleanup...")
         cleanup_result = await self.generator_session.call_tool("cleanup_generator", {})
         print(f"Cleanup result: {cleanup_result.content}")
         
@@ -190,6 +184,27 @@ class GeneratorTester:
                 content = content_item.text
                 return '"status": "success"' in content or '"status":"success"' in content
         return False
+
+    def _check_blender_setup(self, result):
+        """Check if Blender executor was set up successfully."""
+        if result.content and len(result.content) > 0:
+            content_item = result.content[0]
+            if isinstance(content_item, TextContent):
+                content = content_item.text
+                if "Blender executor initialized successfully" in content:
+                    print("✅ Blender executor also initialized successfully")
+                elif "Blender executor not configured" in content:
+                    print("⚠️  Blender executor not configured (missing parameters)")
+                elif "Blender executor setup failed" in content:
+                    print("❌ Blender executor setup failed")
+                    # Try to extract error details
+                    try:
+                        import json
+                        json_data = json.loads(content)
+                        if 'blender_error' in json_data:
+                            print(f"   Error: {json_data['blender_error']}")
+                    except:
+                        pass
 
     async def cleanup(self):
         """Clean up resources."""
