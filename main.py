@@ -198,6 +198,7 @@ async def main():
     parser.add_argument("--init-code", required=True, help="Path to initial code file")
     parser.add_argument("--init-image-path", default=None, help="Path to initial images")
     parser.add_argument("--target-image-path", default=None, help="Path to target images")
+    parser.add_argument("--target-description", default=None, help="Target description for 2D mode")
     parser.add_argument("--generator-hints", default=None, help="Hints for generator agent")
     parser.add_argument("--verifier-hints", default=None, help="Hints for verifier agent")
     parser.add_argument("--thoughtprocess-save", default="thought_process.json", help="Path to save generator thought process")
@@ -253,7 +254,7 @@ async def main():
             "init_code": init_code,
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
-            "target_description": None
+            "target_description": args.target_description
         }
         
         # Add Blender-specific parameters for 3D mode
