@@ -132,7 +132,8 @@ result = img
 """
             pil_result = await self.session.call_tool("exec_pil_code", {
                 "code": pil_code,
-                "image_server_path": args.image_server_path
+                "image_server_path": args.image_server_path,
+                "api_key": api_key
             })
             print(f"PIL execution result: Success={self._check_pil_success(pil_result)}")
             
@@ -141,7 +142,8 @@ result = img
             compare_result = await self.session.call_tool("compare_images", {
                 "path1": os.path.join(target_dir, 'render1.png'),
                 "path2": os.path.join(render_dir, 'render1.png'),
-                "image_server_path": args.image_server_path
+                "image_server_path": args.image_server_path,
+                "api_key": api_key
             })
             print(f"Image comparison completed: {len(str(compare_result.content)) > 50}")
             

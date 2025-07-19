@@ -48,13 +48,13 @@ class ExternalToolClient:
         self.exit_stack = AsyncExitStack()
         self.connection_timeout = 30  # 30 seconds timeout
     
-    async def connect_image_server(self, image_server_path: str):
-        """Connect to the image processing MCP server with timeout."""
+    async def connect_image_server(self, image_server_path: str, api_key: str = None):
+        """Connect to the image processing MCP server with timeout."""      
         try:
             server_params = StdioServerParameters(
                 command="python",
                 args=[image_server_path],
-                env=None
+                env={"OPENAI_API_KEY": api_key} if api_key else None
             )
             
             # Use asyncio.wait_for to add timeout
@@ -237,14 +237,14 @@ class MCPVerifierAgent:
         self.scene_server_path = scene_server_path
         self._tools_connected = False
     
-    async def connect_tools(self):
+    async def connect_tools(self, api_key: str = None):
         """Connect to external tool servers."""
         if self._tools_connected:
             return {"status": "success", "message": "Tools already connected"}
         
         try:
             if self.image_server_path:
-                await self.tool_client.connect_image_server(self.image_server_path)
+                await self.tool_client.connect_image_server(self.image_server_path, api_key)
             if self.scene_server_path:
                 await self.tool_client.connect_scene_server(self.scene_server_path)
             self._tools_connected = True
@@ -265,14 +265,14 @@ class MCPVerifierAgent:
                 "error": str(e)
             }
     
-    async def _ensure_tools_connected(self):
+    async def _ensure_tools_connected(self, api_key: str = None):
         """Ensure external tool servers are connected."""
         if not self._tools_connected:
-            result = await self.connect_tools()
+            result = await self.connect_tools(api_key)
             if result["status"] != "success":
                 raise RuntimeError(f"Failed to connect tools: {result.get('error', 'Unknown error')}")
     
-    def create_session(self, 
+    async def create_session(self, 
                       vision_model: str,
                       api_key: str,
                       thoughtprocess_save: str,
@@ -313,6 +313,10 @@ class MCPVerifierAgent:
         
         self.sessions[session_id] = session
         self.logger.info(f"Created new verification session: {session_id}")
+        
+        # Ensure tools are connected with the API key
+        await self._ensure_tools_connected(api_key)
+        
         return session_id
     
     def _build_system_prompt(self, vision_model: str, api_key: str, hints: str, 
@@ -584,7 +588,7 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
         
         try:
             if function_name == "investigate_3d":
-                await self._ensure_tools_connected()
+                await self._ensure_tools_connected(session.api_key)
                 
                 # Handle different operations
                 if function_args['operation'] == 'focus':
@@ -629,7 +633,7 @@ Focus the tool on the object whose shape or position needs to be adjusted, and a
                     raise ValueError(f"Unknown operation: {function_args['operation']}")
             
             elif function_name == "compare_images":
-                await self._ensure_tools_connected()
+                await self._ensure_tools_connected(session.api_key)
                 
                 current_image_path = function_args.get('current_image_path')
                 target_image_path = function_args.get('target_image_path')
@@ -751,10 +755,7 @@ def main():
             
             agent = agent_instances[agent_key]
             
-            # Connect to tool servers if not already connected
-            connect_result = await agent.connect_tools()
-            
-            session_id = agent.create_session(
+            session_id = await agent.create_session(
                 vision_model=vision_model,
                 api_key=api_key,
                 thoughtprocess_save=thoughtprocess_save,
@@ -764,19 +765,11 @@ def main():
                 blender_save=blender_save
             )
             
-            if connect_result["status"] == "success":
-                return {
-                    "status": "success",
-                    "session_id": session_id,
-                    "message": f"Verification session created successfully. {connect_result['message']}"
-                }
-            else:
-                return {
-                    "status": "partial_success",
-                    "session_id": session_id,
-                    "message": "Verification session created successfully, but tool connection failed",
-                    "tool_error": connect_result.get("error", "Unknown error")
-                }
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "message": "Verification session created successfully with tool servers connected."
+            }
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
@@ -796,7 +789,7 @@ def main():
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    async def exec_pil_code(code: str, image_server_path: str = "servers/verifier/image.py") -> dict:
+    async def exec_pil_code(code: str, image_server_path: str = "servers/verifier/image.py", api_key: str = None) -> dict:
         """
         Execute PIL code for image processing.
         """
@@ -810,14 +803,15 @@ def main():
                 )
             
             agent = agent_instances[agent_key]
-            await agent._ensure_tools_connected()
+            # For standalone tool calls, we don't have an API key, so pass None
+            await agent._ensure_tools_connected(api_key)
             result = await agent.tool_client.exec_pil_code(code)
             return result
         except Exception as e:
             return {"status": "error", "error": str(e)}
     
     @mcp.tool()
-    async def compare_images(path1: str, path2: str, image_server_path: str = "servers/verifier/image.py") -> dict:
+    async def compare_images(path1: str, path2: str, image_server_path: str = "servers/verifier/image.py", api_key: str = None) -> dict:
         """
         Compare two images and describe differences.
         """
@@ -831,7 +825,8 @@ def main():
                 )
             
             agent = agent_instances[agent_key]
-            await agent._ensure_tools_connected()
+            # For standalone tool calls, we don't have an API key, so pass None
+            await agent._ensure_tools_connected(api_key)
             result = await agent.tool_client.compare_images(path1, path2)
             return {"description": result}
         except Exception as e:
