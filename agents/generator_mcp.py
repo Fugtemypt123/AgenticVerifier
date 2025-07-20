@@ -12,13 +12,13 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from contextlib import AsyncExitStack
 
-class ExternalBlenderClient:
-    """Client for connecting to external Blender MCP server."""
+class ExternalToolClient:
+    """Client for connecting to external MCP tool servers."""
     
     def __init__(self):
         self.blender_session = None
+        self.slides_session = None
         self.exit_stack = AsyncExitStack()
-        self._initialized = False
         self.connection_timeout = 30  # 30 seconds timeout
     
     async def connect_blender_server(self, blender_server_path: str):
@@ -54,16 +54,56 @@ class ExternalBlenderClient:
                 timeout=10  # Shorter timeout for tool listing
             )
             tools = response.tools
-            print(f"Connected to Executor with tools: {[tool.name for tool in tools]}")
+            print(f"Connected to Blender server with tools: {[tool.name for tool in tools]}")
             
         except asyncio.TimeoutError:
             raise RuntimeError(f"Failed to connect to Blender server: Connection timeout after {self.connection_timeout}s")
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Blender server: {str(e)}")
     
-    async def initialize_executor(self, blender_command: str, blender_file: str, 
-                                blender_script: str, script_save: str, 
-                                render_save: str, blender_save: Optional[str] = None) -> Dict:
+    async def connect_slides_server(self, slides_server_path: str):
+        """Connect to the Slides execution MCP server with timeout."""
+        try:
+            # Add timeout to prevent hanging
+            server_params = StdioServerParameters(
+                command="python",
+                args=[slides_server_path],
+                env=None
+            )
+            
+            # Use asyncio.wait_for to add timeout
+            stdio_transport = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(stdio_client(server_params)),
+                timeout=self.connection_timeout
+            )
+            stdio, write = stdio_transport
+            
+            self.slides_session = await asyncio.wait_for(
+                self.exit_stack.enter_async_context(ClientSession(stdio, write)),
+                timeout=self.connection_timeout
+            )
+            
+            await asyncio.wait_for(
+                self.slides_session.initialize(),
+                timeout=self.connection_timeout
+            )
+            
+            # List available tools
+            response = await asyncio.wait_for(
+                self.slides_session.list_tools(),
+                timeout=10  # Shorter timeout for tool listing
+            )
+            tools = response.tools
+            print(f"Connected to Slides server with tools: {[tool.name for tool in tools]}")
+            
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Failed to connect to Slides server: Connection timeout after {self.connection_timeout}s")
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Slides server: {str(e)}")
+    
+    async def initialize_blender_executor(self, blender_command: str, blender_file: str, 
+                                        blender_script: str, script_save: str, 
+                                        render_save: str, blender_save: Optional[str] = None) -> Dict:
         """Initialize the Blender executor using external server with timeout."""
         if not self.blender_session:
             raise RuntimeError("Blender server not connected")
@@ -81,19 +121,16 @@ class ExternalBlenderClient:
                 timeout=30  # 30 seconds for initialization
             )
             content = json.loads(result.content[0].text) if result.content else {}
-            self._initialized = True
             return content
         except asyncio.TimeoutError:
             raise RuntimeError("Blender executor initialization timeout after 30s")
         except Exception as e:
             raise RuntimeError(f"Blender executor initialization failed: {str(e)}")
     
-    async def exec_script(self, code: str, round_num: int) -> Dict:
-        """Execute script using external server with timeout."""
+    async def exec_blender_script(self, code: str, round_num: int) -> Dict:
+        """Execute Blender script using external server with timeout."""
         if not self.blender_session:
             raise RuntimeError("Blender server not connected")
-        if not self._initialized:
-            raise RuntimeError("Blender executor not initialized")
         
         try:
             result = await asyncio.wait_for(
@@ -109,6 +146,27 @@ class ExternalBlenderClient:
             raise RuntimeError("Blender script execution timeout after 60s")
         except Exception as e:
             raise RuntimeError(f"Blender script execution failed: {str(e)}")
+    
+    async def exec_slides_script(self, code: str, round_num: int, code_save: str) -> Dict:
+        """Execute Slides script using external server with timeout."""
+        if not self.slides_session:
+            raise RuntimeError("Slides server not connected")
+        
+        try:
+            result = await asyncio.wait_for(
+                self.slides_session.call_tool("exec_pptx", {
+                    "code": code,
+                    "round": round_num,
+                    "code_save": code_save
+                }),
+                timeout=60  # 60 seconds for script execution
+            )
+            content = json.loads(result.content[0].text) if result.content else {}
+            return content
+        except asyncio.TimeoutError:
+            raise RuntimeError("Slides script execution timeout after 60s")
+        except Exception as e:
+            raise RuntimeError(f"Slides script execution failed: {str(e)}")
     
     async def cleanup(self):
         """Clean up connections with timeout."""
@@ -135,7 +193,8 @@ class GeneratorAgent:
                  init_image_path: Optional[str] = None,
                  target_image_path: Optional[str] = None,
                  target_description: Optional[str] = None,
-                 blender_server_path: Optional[str] = None):
+                 blender_server_path: Optional[str] = None,
+                 slides_server_path: Optional[str] = None):
         """
         Initialize the Generator Agent.
         
@@ -150,6 +209,7 @@ class GeneratorAgent:
             target_image_path: Path to target images
             target_description: Description of target
             blender_server_path: Path to external Blender MCP server
+            slides_server_path: Path to external Slides MCP server
         """
         self.model = vision_model
         self.api_key = api_key
@@ -159,11 +219,14 @@ class GeneratorAgent:
         self.memory = []
         self.current_round = 0
         
-        # Blender execution setup
-        self.blender_client = ExternalBlenderClient()
+        # Tool execution setup
+        self.tool_client = ExternalToolClient()
         self.blender_server_path = blender_server_path
+        self.slides_server_path = slides_server_path
         self._blender_connected = False
+        self._slides_connected = False
         self.blender_config = {}
+        self.slides_config = {}
         
         # Initialize memory if initial parameters are provided
         if all([init_code, init_image_path, target_image_path]):
@@ -175,8 +238,14 @@ class GeneratorAgent:
     async def _ensure_blender_connected(self):
         """Ensure Blender server is connected."""
         if not self._blender_connected and self.blender_server_path:
-            await self.blender_client.connect_blender_server(self.blender_server_path)
+            await self.tool_client.connect_blender_server(self.blender_server_path)
             self._blender_connected = True
+    
+    async def _ensure_slides_connected(self):
+        """Ensure Slides server is connected."""
+        if not self._slides_connected and self.slides_server_path:
+            await self.tool_client.connect_slides_server(self.slides_server_path)
+            self._slides_connected = True
     
     async def setup_blender_executor(self, blender_command: str, blender_file: str,
                                    blender_script: str, script_save: str,
@@ -193,8 +262,18 @@ class GeneratorAgent:
             "blender_save": blender_save
         }
         
-        result = await self.blender_client.initialize_executor(**self.blender_config)
+        result = await self.tool_client.initialize_blender_executor(**self.blender_config)
         return result
+    
+    async def setup_slides_executor(self, code_save: str):
+        """Setup the Slides executor with configuration."""
+        await self._ensure_slides_connected()
+        
+        self.slides_config = {
+            "code_save": code_save
+        }
+        
+        return {"status": "success", "message": "Slides executor configured"}
     
     def _build_system_prompt(self, hints: str, init_code: str, init_image_path: str, 
                            target_image_path: str, target_description: str = None) -> List[Dict]:
@@ -355,14 +434,23 @@ class GeneratorAgent:
             
             self.current_round += 1
             
-            # Automatically execute the generated code with Blender if configured
+            # Automatically execute the generated code with configured executor
             execution_result = None
             if self.blender_config and self._blender_connected:
                 try:
-                    execution_result = await self.blender_client.exec_script(full_code, self.current_round)
+                    execution_result = await self.tool_client.exec_blender_script(full_code, self.current_round)
                     logging.info(f"Blender execution completed for round {self.current_round}")
                 except Exception as e:
                     logging.error(f"Blender execution failed: {e}")
+                    execution_result = {"status": "error", "error": str(e)}
+            elif self.slides_config and self._slides_connected:
+                try:
+                    execution_result = await self.tool_client.exec_slides_script(
+                        full_code, self.current_round, self.slides_config["code_save"]
+                    )
+                    logging.info(f"Slides execution completed for round {self.current_round}")
+                except Exception as e:
+                    logging.error(f"Slides execution failed: {e}")
                     execution_result = {"status": "error", "error": str(e)}
             
             return {
@@ -408,7 +496,7 @@ class GeneratorAgent:
     
     async def cleanup(self) -> None:
         """Clean up external connections."""
-        await self.blender_client.cleanup()
+        await self.tool_client.cleanup()
 
 
 def main():
@@ -429,16 +517,19 @@ def main():
         target_image_path: str = None,
         target_description: str = None,
         blender_server_path: str = "servers/generator/blender.py",
+        slides_server_path: str = "servers/generator/slides.py",
         # Blender executor parameters
         blender_command: str = None,
         blender_file: str = None,
         blender_script: str = None,
         script_save: str = None,
         render_save: str = None,
-        blender_save: Optional[str] = None
+        blender_save: Optional[str] = None,
+        # Slides executor parameters
+        code_save: str = None
     ) -> dict:
         """
-        Initialize a new Generator Agent with optional Blender executor setup.
+        Initialize a new Generator Agent with optional Blender or Slides executor setup.
         """
         try:
             agent = GeneratorAgent(
@@ -451,12 +542,19 @@ def main():
                 init_image_path=init_image_path,
                 target_image_path=target_image_path,
                 target_description=target_description,
-                blender_server_path=blender_server_path
+                blender_server_path=blender_server_path,
+                slides_server_path=slides_server_path
             )
             agent_holder['agent'] = agent
             
-            # If Blender parameters are provided, setup executor automatically
-            if all([blender_command, blender_file, blender_script, script_save, render_save]):
+            # Determine which executor to setup based on provided parameters
+            blender_setup = all([blender_command, blender_file, blender_script, script_save, render_save])
+            slides_setup = code_save is not None
+            
+            setup_results = []
+            
+            # Setup Blender executor if parameters are provided
+            if blender_setup:
                 try:
                     setup_result = await agent.setup_blender_executor(
                         blender_command=blender_command,
@@ -466,28 +564,44 @@ def main():
                         render_save=render_save,
                         blender_save=blender_save
                     )
-                    
-                    if setup_result.get("status") == "success":
-                        return {
-                            "status": "success",
-                            "message": "Generator Agent and Blender executor initialized successfully"
-                        }
-                    else:
-                        return {
-                            "status": "partial_success",
-                            "message": "Generator Agent initialized successfully, but Blender executor setup failed",
-                            "blender_error": setup_result.get("error", "Unknown error")
-                        }
+                    setup_results.append(("Blender", setup_result))
                 except Exception as e:
-                    return {
-                        "status": "partial_success",
-                        "message": "Generator Agent initialized successfully, but Blender executor setup failed",
-                        "blender_error": str(e)
-                    }
-            else:
+                    setup_results.append(("Blender", {"status": "error", "error": str(e)}))
+            
+            # Setup Slides executor if parameters are provided
+            if slides_setup:
+                try:
+                    setup_result = await agent.setup_slides_executor(code_save=code_save)
+                    setup_results.append(("Slides", setup_result))
+                except Exception as e:
+                    setup_results.append(("Slides", {"status": "error", "error": str(e)}))
+            
+            # Determine overall status
+            if not setup_results:
                 return {
                     "status": "success",
-                    "message": "Generator Agent initialized successfully (Blender executor not configured)"
+                    "message": "Generator Agent initialized successfully (no executor configured)"
+                }
+            
+            successful_setups = [name for name, result in setup_results if result.get("status") == "success"]
+            failed_setups = [name for name, result in setup_results if result.get("status") != "success"]
+            
+            if successful_setups and not failed_setups:
+                return {
+                    "status": "success",
+                    "message": f"Generator Agent and {', '.join(successful_setups)} executor(s) initialized successfully"
+                }
+            elif successful_setups and failed_setups:
+                return {
+                    "status": "partial_success",
+                    "message": f"Generator Agent initialized successfully. {', '.join(successful_setups)} executor(s) setup successful, {', '.join(failed_setups)} executor(s) setup failed",
+                    "failed_setups": failed_setups
+                }
+            else:
+                return {
+                    "status": "partial_success",
+                    "message": "Generator Agent initialized successfully, but all executor setups failed",
+                    "failed_setups": failed_setups
                 }
         except Exception as e:
             return {"status": "error", "error": str(e)}

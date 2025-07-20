@@ -90,7 +90,7 @@ class VerifierTester:
             print("Step 1: Creating verification session with tool server connection...")
             session_result = await self.session.call_tool("create_verification_session", {
                 "vision_model": args.vision_model,
-                "api_key": api_key,
+                "api_key": args.api_key,
                 "thoughtprocess_save": args.thoughtprocess_save,
                 "max_rounds": args.max_rounds,
                 "verifier_hints": args.verifier_hints,
@@ -385,10 +385,11 @@ async def main():
                        help="Path to save thought process")
     parser.add_argument("--max-rounds", type=int, default=3,
                        help="Maximum number of rounds")
-    parser.add_argument("--verifier-hints", default=blender_verifier_hints["shape"],
+    parser.add_argument("--verifier-hints", default=blender_verifier_hints["blendshape"],
                        help="Hints for verifier")
     parser.add_argument("--blender-save", default="_test",
                        help="Blender save path")
+    parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY"), help="OpenAI API key")
     
     # Tool server paths
     parser.add_argument("--image-server-path", default="servers/verifier/image.py",

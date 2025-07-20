@@ -16,8 +16,6 @@ from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
 from prompts.blender import blender_generator_hints
 
-api_key = os.getenv("OPENAI_API_KEY")
-
 class GeneratorTester:
     def __init__(self):
         self.generator_session: Optional[ClientSession] = None
@@ -87,7 +85,7 @@ class GeneratorTester:
         print("Step 1: Initializing generator with Blender executor...")
         init_result = await self.generator_session.call_tool("initialize_generator", {
             "vision_model": args.vision_model,
-            "api_key": api_key,
+            "api_key": args.api_key,
             "thoughtprocess_save": args.thoughtprocess_save,
             "max_rounds": args.max_rounds,
             "generator_hints": args.generator_hints,
@@ -96,13 +94,16 @@ class GeneratorTester:
             "target_image_path": args.target_image_path,
             "target_description": args.target_description,
             "blender_server_path": args.blender_server_path,
+            "slides_server_path": args.slides_server_path,
             # Blender executor parameters
             "blender_command": args.blender_command,
             "blender_file": args.blender_file,
             "blender_script": args.blender_script,
             "script_save": args.script_save,
             "render_save": args.render_save,
-            "blender_save": args.blender_save
+            "blender_save": args.blender_save,
+            # Slides executor parameters
+            "code_save": args.code_save
         })
         print(f"Initialization result: {init_result.content}")
         
@@ -216,11 +217,12 @@ async def main():
                        help="Path to generator MCP script")
     parser.add_argument("--vision-model", default="gpt-4o",
                        help="OpenAI vision model to use")
+    parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY"), help="OpenAI API key")
     parser.add_argument("--thoughtprocess-save", default="_test/test_generator_thought.json",
                        help="Path to save thought process")
     parser.add_argument("--max-rounds", type=int, default=5,
                        help="Maximum number of rounds")
-    parser.add_argument("--generator-hints", default=blender_generator_hints["shape"],
+    parser.add_argument("--generator-hints", default=blender_generator_hints["blendshape"],
                        help="Hints for generator")
     initial_code = Path("data/blendergym/blendshape1/start.py").read_text()
     parser.add_argument("--init-code", default=initial_code,
@@ -249,6 +251,10 @@ async def main():
     # Tool server paths
     parser.add_argument("--blender-server-path", default="servers/generator/blender.py",
                        help="Path to Blender MCP server script")
+    parser.add_argument("--slides-server-path", default="servers/generator/slides.py",
+                       help="Path to Slides MCP server script")
+    parser.add_argument("--code-save", default="_test/slides",
+                       help="Directory to save slides code")
     
     args = parser.parse_args()
     

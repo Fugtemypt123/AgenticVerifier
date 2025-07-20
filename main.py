@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 """
 Main entry for dual-agent interactive framework (generator/verifier).
 Supports 3D (Blender) and 2D (PPTX) modes.
@@ -13,12 +13,9 @@ import asyncio
 from pathlib import Path
 from typing import Optional
 from contextlib import AsyncExitStack
-import requests
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent
-
-api_key = os.getenv("OPENAI_API_KEY")
 
 # ========== Agent Client Wrappers ==========
 
@@ -170,30 +167,13 @@ class VerifierAgentClient:
         """Clean up resources."""
         await self.exit_stack.aclose()
 
-# ========== Executor Wrappers ==========
-
-class BlenderExecutorClient:
-    def __init__(self, url: str):
-        self.url = url
-    def execute(self, code: str, round_num: int, **kwargs):
-        resp = requests.post(f"{self.url}/exec_script", json={"code": code, "round": round_num, **kwargs})
-        resp.raise_for_status()
-        return resp.json()
-
-class SlidesExecutorClient:
-    def __init__(self, url: str):
-        self.url = url
-    def execute(self, code: str, round_num: int, code_save: str):
-        resp = requests.post(f"{self.url}/exec_pptx", json={"code": code, "round": round_num, "code_save": code_save})
-        resp.raise_for_status()
-        return resp.json()
-
 # ========== Main Dual-Agent Loop ==========
 
 async def main():
     parser = argparse.ArgumentParser(description="Dual-agent interactive framework")
     parser.add_argument("--mode", choices=["3d", "2d"], required=True, help="Choose 3D (Blender) or 2D (PPTX) mode")
     parser.add_argument("--vision-model", default="gpt-4o", help="OpenAI vision model")
+    parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY"), help="OpenAI API key")
     parser.add_argument("--max-rounds", type=int, default=10, help="Max interaction rounds")
     parser.add_argument("--init-code", required=True, help="Path to initial code file")
     parser.add_argument("--init-image-path", default=None, help="Path to initial images")
@@ -201,21 +181,22 @@ async def main():
     parser.add_argument("--target-description", default=None, help="Target description for 2D mode")
     parser.add_argument("--generator-hints", default=None, help="Hints for generator agent")
     parser.add_argument("--verifier-hints", default=None, help="Hints for verifier agent")
-    parser.add_argument("--thoughtprocess-save", default="thought_process.json", help="Path to save generator thought process")
-    parser.add_argument("--verifier-thoughtprocess-save", default="verifier_thought_process.json", help="Path to save verifier thought process")
+    parser.add_argument("--generator-thought", default="thought_process.json", help="Path to save generator thought process")
+    parser.add_argument("--verifier-thought", default="verifier_thought_process.json", help="Path to save verifier thought process")
     parser.add_argument("--render-save", default="renders", help="Render save directory")
     parser.add_argument("--code-save", default="slides_code", help="Slides code save directory (2D mode)")
     parser.add_argument("--blender-save", default=None, help="Blender save path (3D mode)")
     parser.add_argument("--generator-script", default="agents/generator_mcp.py", help="Generator MCP script path")
     parser.add_argument("--verifier-script", default="agents/verifier_mcp.py", help="Verifier MCP script path")
-    parser.add_argument("--blender-url", default="http://localhost:8001", help="Blender executor server URL")
-    parser.add_argument("--slides-url", default="http://localhost:8002", help="Slides executor server URL")
     
     # Blender execution parameters (for generator)
     parser.add_argument("--blender-command", default="blender", help="Blender command path")
     parser.add_argument("--blender-file", default="scene.blend", help="Blender template file")
     parser.add_argument("--blender-script", default="render_script.py", help="Blender execution script")
     parser.add_argument("--script-save", default="scripts", help="Directory to save generated scripts")
+    
+    # Slides execution parameters (for generator)
+    parser.add_argument("--slides-server-path", default="servers/generator/slides.py", help="Path to Slides MCP server script")
     
     # Tool server paths (for verifier)
     parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to image processing MCP server script")
@@ -247,17 +228,19 @@ async def main():
         # Create generator session
         generator_params = {
             "vision_model": args.vision_model,
-            "api_key": api_key,
-            "thoughtprocess_save": args.thoughtprocess_save,
+            "api_key": args.api_key,
+            "generator_thought": args.generator_thought,
             "max_rounds": args.max_rounds,
             "generator_hints": args.generator_hints,
             "init_code": init_code,
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
-            "target_description": args.target_description
+            "target_description": args.target_description,
+            "blender_server_path": "servers/generator/blender.py" if args.mode == "3d" else None,
+            "slides_server_path": "servers/generator/slides.py" if args.mode == "2d" else None
         }
         
-        # Add Blender-specific parameters for 3D mode
+        # Add mode-specific parameters
         if args.mode == "3d":
             generator_params.update({
                 "blender_command": args.blender_command,
@@ -267,14 +250,18 @@ async def main():
                 "render_save": args.render_save,
                 "blender_save": args.blender_save
             })
+        elif args.mode == "2d":
+            generator_params.update({
+                "code_save": args.code_save
+            })
         
         await generator.create_session(**generator_params)
         
         # Create verifier session
         verifier_params = {
             "vision_model": args.vision_model,
-            "api_key": api_key,
-            "thoughtprocess_save": args.verifier_thoughtprocess_save,
+            "api_key": args.api_key,
+            "verifier_thought": args.verifier_thought,
             "max_rounds": args.max_rounds,
             "verifier_hints": args.verifier_hints,
             "target_image_path": args.target_image_path,
@@ -284,12 +271,6 @@ async def main():
         }
         
         await verifier.create_session(**verifier_params)
-
-        # Init executors (still HTTP-based for now)
-        if args.mode == "3d":
-            executor = BlenderExecutorClient(args.blender_url)
-        else:
-            executor = SlidesExecutorClient(args.slides_url)
 
         # Main loop
         for round_num in range(args.max_rounds):
@@ -313,47 +294,36 @@ async def main():
                 
             print(f"Generated code (truncated):\n{code[:200]}...")
             
-            # Check if automatic execution happened (for 3D mode)
-            if args.mode == "3d" and gen_result.get("execution_result"):
+            # Check if automatic execution happened
+            if gen_result.get("execution_result"):
                 exec_result = gen_result["execution_result"]
                 if exec_result.get("status") == "success":
-                    print("✅ Automatic Blender execution completed!")
-                    blender_result = exec_result.get("result", {})
-                    if blender_result.get("status") == "success":
-                        print("   - Image rendering successful")
-                    else:
-                        print(f"   - Image rendering failed: {blender_result.get('output', 'Unknown error')}")
-                        await generator.add_feedback(f"Execution error: {blender_result.get('output')}")
-                        continue
+                    if args.mode == "3d":
+                        print("✅ Automatic Blender execution completed!")
+                        blender_result = exec_result.get("result", {})
+                        if blender_result.get("status") == "success":
+                            print("   - Image rendering successful")
+                        else:
+                            print(f"   - Image rendering failed: {blender_result.get('output', 'Unknown error')}")
+                            await generator.add_feedback(f"Execution error: {blender_result.get('output')}")
+                            continue
+                    elif args.mode == "2d":
+                        print("✅ Automatic Slides execution completed!")
+                        slides_result = exec_result.get("result", {})
+                        if slides_result.get("status") == "success":
+                            print("   - Slides generation successful")
+                        else:
+                            print(f"   - Slides generation failed: {slides_result.get('output', 'Unknown error')}")
+                            await generator.add_feedback(f"Execution error: {slides_result.get('output')}")
+                            continue
                 else:
-                    print(f"   - Blender execution failed: {exec_result.get('error', 'Unknown error')}")
+                    print(f"   - Execution failed: {exec_result.get('error', 'Unknown error')}")
                     await generator.add_feedback(f"Execution error: {exec_result.get('error')}")
                     continue
             else:
-                # 2. Manual execution (for 2D mode or when automatic execution is not available)
+                # Manual execution (when automatic execution is not available)
                 print("Step 2: Executing code...")
-                if args.mode == "3d":
-                    exec_result = executor.execute(
-                        code=code,
-                        round_num=round_num,
-                        blender_command=args.blender_command,
-                        blender_file=args.blender_file,
-                        blender_script=args.blender_script,
-                        script_save=args.script_save,
-                        render_save=args.render_save,
-                        blender_save=args.blender_save
-                    )
-                else:
-                    exec_result = executor.execute(
-                        code=code,
-                        round_num=round_num,
-                        code_save=args.code_save
-                    )
-                
-                if exec_result.get("status") != "success":
-                    print(f"Execution failed: {exec_result.get('output')}")
-                    await generator.add_feedback(f"Execution error: {exec_result.get('output')}")
-                    continue
+                print("   - Execution handled by generator agent internally")
             
             # 3. Verifier验证
             print("Step 3: Verifier analyzing scene...")
