@@ -13,7 +13,9 @@ To isolate the effect of each blend shape, modify only one or a small group of r
 5. Think Iteratively
 This is not a one-shot task. Use a loop of (edit → observe → evaluate) to converge toward the desired shape."""
 
-verifier_hints = """1. Understand Blend Shape Semantics
+verifier_hints = """0. Use `compare_image` tool first to identify the difference between current scene and target image.
+
+1. Understand Blend Shape Semantics
 Use the blend shape name (e.g., "BellySag", "ChestEnlarge") as a linguistic cue to infer what part or feature it affects. Match user-desired features (from prompts or comparisons) with blend shape names.
 
 2. Adjust with Care: Continuous Parameters

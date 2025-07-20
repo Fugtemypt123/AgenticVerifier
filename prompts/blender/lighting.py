@@ -13,7 +13,9 @@ After each lighting change, examine the resulting shadows, highlights, and overa
 5. Avoid Overexposure or Flat Lighting
 Be cautious with intensity. Lights that are too bright or too diffuse can wash out details. Aim for balanced contrast that maintains depth and material fidelity."""
 
-verifier_hints = """1. Control Light Color, Intensity, Position, and Direction
+verifier_hints = """0. Use `compare_image` tool first to identify the difference between current scene and target image.
+
+1. Control Light Color, Intensity, Position, and Direction
 Lighting is defined not only by how bright or what color the light is, but also by where it comes from and where it's pointed. Adjust all four dimensions to shape the scene’s illumination.
 
 2. Infer Light Source from Shadows

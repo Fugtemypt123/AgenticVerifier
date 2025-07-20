@@ -13,7 +13,9 @@ Placement is not just about coordinates—it reflects spatial logic (e.g., “to
 5. Validate Placement Visually
 After each move, observe the visual scene. Check if the new position matches the goal scene in both location and context (e.g., symmetry, grouping, contact with surfaces)."""
 
-verifier_hints = """1. Understand Start vs. Goal Scene Layout
+verifier_hints = """0. Use `compare_image` tool first to identify the difference between current scene and target image.
+
+1. Understand Start vs. Goal Scene Layout
 Carefully compare the start and goal scenes to identify which objects have moved and where they need to go. Focus on relative positions, distances, and alignment between objects.
 
 2. Read the Placement Functions in the Code
