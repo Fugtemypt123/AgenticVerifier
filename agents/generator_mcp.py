@@ -288,9 +288,10 @@ class GeneratorAgent:
         # Add output format
         user_content.append({
             "type": "text",
-            "text": "After each code edit, your code will be passed to a validator, which will provide feedback on the result. Based on this feedback, you must iteratively refine your code edits. This process will continue across multiple rounds of dialogue. In each round, you must follow a fixed output format. Output Format (keep this format for each round):\n1. Thought: Analyze the current state and provide a clear plan for the required changes.\n2. Code Edition: Provide your code modifications in the following format:\n-: [lines to remove]\n+: [lines to add]\n3. Full Code: Merge your code changes into the full code:\n```python\n[full code]\n```"
+            "text": prompts_dict[mode]['generator_format']
         })
         
+        # Add all user content
         full_prompt.append({
             "role": "user",
             "content": user_content
