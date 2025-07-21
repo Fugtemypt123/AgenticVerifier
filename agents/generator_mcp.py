@@ -196,7 +196,8 @@ class GeneratorAgent:
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "You are a Blender Python code analysis expert."},
-                    {"role": "user", "content": f"Please analyze the following Blender Python code line by line, explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
+                    {"role": "user", "content": f"Please analyze the following Blender Python code line by line, \
+                    explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
                 ]
             )
             code_analysis = code_analysis.choices[0].message.content
