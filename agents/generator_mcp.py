@@ -11,162 +11,98 @@ from mcp.server.fastmcp import FastMCP
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from contextlib import AsyncExitStack
+from prompts import prompts_dict
 
 class ExternalToolClient:
-    """Client for connecting to external MCP tool servers."""
+    """Client for connecting to external MCP tool servers (blender/slides)."""
     
     def __init__(self):
-        self.blender_session = None
-        self.slides_session = None
+        self.sessions = {}  # server_type -> session
         self.exit_stack = AsyncExitStack()
         self.connection_timeout = 30  # 30 seconds timeout
     
-    async def connect_blender_server(self, blender_server_path: str):
-        """Connect to the Blender execution MCP server with timeout."""
+    async def connect_server(self, server_type: str, server_path: str):
+        """Connect to the specified MCP server with timeout."""
+        if server_type in self.sessions:
+            return  # Already connected
         try:
-            # Add timeout to prevent hanging
             server_params = StdioServerParameters(
                 command="python",
-                args=[blender_server_path],
+                args=[server_path],
                 env=None
             )
-            
-            # Use asyncio.wait_for to add timeout
             stdio_transport = await asyncio.wait_for(
                 self.exit_stack.enter_async_context(stdio_client(server_params)),
                 timeout=self.connection_timeout
             )
             stdio, write = stdio_transport
-            
-            self.blender_session = await asyncio.wait_for(
+            session = await asyncio.wait_for(
                 self.exit_stack.enter_async_context(ClientSession(stdio, write)),
                 timeout=self.connection_timeout
             )
-            
             await asyncio.wait_for(
-                self.blender_session.initialize(),
+                session.initialize(),
                 timeout=self.connection_timeout
             )
-            
             # List available tools
             response = await asyncio.wait_for(
-                self.blender_session.list_tools(),
-                timeout=10  # Shorter timeout for tool listing
+                session.list_tools(),
+                timeout=10
             )
             tools = response.tools
-            print(f"Connected to Blender server with tools: {[tool.name for tool in tools]}")
-            
+            print(f"Connected to {server_type.capitalize()} server with tools: {[tool.name for tool in tools]}")
+            self.sessions[server_type] = session
         except asyncio.TimeoutError:
-            raise RuntimeError(f"Failed to connect to Blender server: Connection timeout after {self.connection_timeout}s")
+            raise RuntimeError(f"Failed to connect to {server_type} server: Connection timeout after {self.connection_timeout}s")
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Blender server: {str(e)}")
+            raise RuntimeError(f"Failed to connect to {server_type} server: {str(e)}")
     
-    async def connect_slides_server(self, slides_server_path: str):
-        """Connect to the Slides execution MCP server with timeout."""
-        try:
-            # Add timeout to prevent hanging
-            server_params = StdioServerParameters(
-                command="python",
-                args=[slides_server_path],
-                env=None
-            )
-            
-            # Use asyncio.wait_for to add timeout
-            stdio_transport = await asyncio.wait_for(
-                self.exit_stack.enter_async_context(stdio_client(server_params)),
-                timeout=self.connection_timeout
-            )
-            stdio, write = stdio_transport
-            
-            self.slides_session = await asyncio.wait_for(
-                self.exit_stack.enter_async_context(ClientSession(stdio, write)),
-                timeout=self.connection_timeout
-            )
-            
-            await asyncio.wait_for(
-                self.slides_session.initialize(),
-                timeout=self.connection_timeout
-            )
-            
-            # List available tools
-            response = await asyncio.wait_for(
-                self.slides_session.list_tools(),
-                timeout=10  # Shorter timeout for tool listing
-            )
-            tools = response.tools
-            print(f"Connected to Slides server with tools: {[tool.name for tool in tools]}")
-            
-        except asyncio.TimeoutError:
-            raise RuntimeError(f"Failed to connect to Slides server: Connection timeout after {self.connection_timeout}s")
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to Slides server: {str(e)}")
+    async def initialize_executor(self, server_type: str, **kwargs) -> Dict:
+        """Initialize the executor using external server with timeout."""
+        session = self.sessions.get(server_type)
+        if not session:
+            raise RuntimeError(f"{server_type.capitalize()} server not connected")
+        tool_name = "initialize_executor" if server_type == "blender" else "exec_pptx"  # slides doesn't need explicit init
+        if server_type == "blender":
+            try:
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, kwargs),
+                    timeout=30
+                )
+                content = json.loads(result.content[0].text) if result.content else {}
+                return content
+            except asyncio.TimeoutError:
+                raise RuntimeError(f"{server_type.capitalize()} executor initialization timeout after 30s")
+            except Exception as e:
+                raise RuntimeError(f"{server_type.capitalize()} executor initialization failed: {str(e)}")
+        else:
+            # slides: treat as always success
+            return {"status": "success", "message": "Slides executor configured"}
     
-    async def initialize_blender_executor(self, blender_command: str, blender_file: str, 
-                                        blender_script: str, script_save: str, 
-                                        render_save: str, blender_save: Optional[str] = None) -> Dict:
-        """Initialize the Blender executor using external server with timeout."""
-        if not self.blender_session:
-            raise RuntimeError("Blender server not connected")
-        
+    async def exec_script(self, server_type: str, code: str, round_num: int, **kwargs) -> Dict:
+        """Execute script using external server with timeout."""
+        session = self.sessions.get(server_type)
+        if not session:
+            raise RuntimeError(f"{server_type.capitalize()} server not connected")
+        if server_type == "blender":
+            tool_name = "exec_script"
+            tool_args = {"code": code, "round": round_num}
+        elif server_type == "slides":
+            tool_name = "exec_pptx"
+            tool_args = {"code": code, "round": round_num, "code_save": kwargs.get("code_save")}
+        else:
+            raise ValueError(f"Unknown server_type: {server_type}")
         try:
             result = await asyncio.wait_for(
-                self.blender_session.call_tool("initialize_executor", {
-                    "blender_command": blender_command,
-                    "blender_file": blender_file,
-                    "blender_script": blender_script,
-                    "script_save": script_save,
-                    "render_save": render_save,
-                    "blender_save": blender_save
-                }),
-                timeout=30  # 30 seconds for initialization
+                session.call_tool(tool_name, tool_args),
+                timeout=60
             )
             content = json.loads(result.content[0].text) if result.content else {}
             return content
         except asyncio.TimeoutError:
-            raise RuntimeError("Blender executor initialization timeout after 30s")
+            raise RuntimeError(f"{server_type.capitalize()} script execution timeout after 60s")
         except Exception as e:
-            raise RuntimeError(f"Blender executor initialization failed: {str(e)}")
-    
-    async def exec_blender_script(self, code: str, round_num: int) -> Dict:
-        """Execute Blender script using external server with timeout."""
-        if not self.blender_session:
-            raise RuntimeError("Blender server not connected")
-        
-        try:
-            result = await asyncio.wait_for(
-                self.blender_session.call_tool("exec_script", {
-                    "code": code,
-                    "round": round_num
-                }),
-                timeout=60  # 60 seconds for script execution
-            )
-            content = json.loads(result.content[0].text) if result.content else {}
-            return content
-        except asyncio.TimeoutError:
-            raise RuntimeError("Blender script execution timeout after 60s")
-        except Exception as e:
-            raise RuntimeError(f"Blender script execution failed: {str(e)}")
-    
-    async def exec_slides_script(self, code: str, round_num: int, code_save: str) -> Dict:
-        """Execute Slides script using external server with timeout."""
-        if not self.slides_session:
-            raise RuntimeError("Slides server not connected")
-        
-        try:
-            result = await asyncio.wait_for(
-                self.slides_session.call_tool("exec_pptx", {
-                    "code": code,
-                    "round": round_num,
-                    "code_save": code_save
-                }),
-                timeout=60  # 60 seconds for script execution
-            )
-            content = json.loads(result.content[0].text) if result.content else {}
-            return content
-        except asyncio.TimeoutError:
-            raise RuntimeError("Slides script execution timeout after 60s")
-        except Exception as e:
-            raise RuntimeError(f"Slides script execution failed: {str(e)}")
+            raise RuntimeError(f"{server_type.capitalize()} script execution failed: {str(e)}")
     
     async def cleanup(self):
         """Clean up connections with timeout."""
@@ -184,12 +120,13 @@ class GeneratorAgent:
     """
     
     def __init__(self, 
+                 mode: str,
                  vision_model: str,
                  api_key: str,
                  thought_save: str,
+                 task_name: str,
                  max_rounds: int = 10,
-                 generator_hints: Optional[str] = None,
-                 init_code: Optional[str] = None,
+                 init_code_path: Optional[str] = None,
                  init_image_path: Optional[str] = None,
                  target_image_path: Optional[str] = None,
                  target_description: Optional[str] = None,
@@ -197,20 +134,8 @@ class GeneratorAgent:
                  slides_server_path: Optional[str] = None):
         """
         Initialize the Generator Agent.
-        
-        Args:
-            vision_model: The OpenAI vision model to use
-            api_key: OpenAI API key
-            thought_save: Path to save thought process
-            max_rounds: Maximum number of generation rounds
-            generator_hints: Hints for code generation
-            init_code: Initial code to modify
-            init_image_path: Path to initial images
-            target_image_path: Path to target images
-            target_description: Description of target
-            blender_server_path: Path to external Blender MCP server
-            slides_server_path: Path to external Slides MCP server
         """
+        self.mode = mode
         self.model = vision_model
         self.api_key = api_key
         self.client = OpenAI(api_key=self.api_key)
@@ -218,68 +143,45 @@ class GeneratorAgent:
         self.max_rounds = max_rounds
         self.memory = []
         self.current_round = 0
-        
-        # Tool execution setup
         self.tool_client = ExternalToolClient()
-        self._blender_connected = False
-        self._slides_connected = False
-        self.blender_config = {}
-        self.slides_config = {}
+        self.server_type = None  # "blender" or "slides"
+        self.server_path = None
+        self.executor_config = {}
+        self._server_connected = False
+        # Decide which server to use
+        if mode == "blendergym":
+            self.server_type = "blender"
+            self.server_path = blender_server_path
+        elif mode == "autopresent":
+            self.server_type = "slides"
+            self.server_path = slides_server_path
+        else:
+            raise NotImplementedError("Mode not implemented")
         
         # Initialize memory if initial parameters are provided
-        if all([init_code, init_image_path, target_image_path]):
-            self.memory = self._build_system_prompt(
-                generator_hints, init_code, init_image_path, 
-                target_image_path, target_description
-            )
+        self.memory = self._build_system_prompt(
+            mode, task_name, init_code_path, init_image_path, 
+            target_image_path, target_description
+        )
     
-    async def _ensure_blender_connected(self):
-        """Ensure Blender server is connected."""
-        if not self._blender_connected and self.blender_server_path:
-            await self.tool_client.connect_blender_server(self.blender_server_path)
-            self._blender_connected = True
+    async def _ensure_server_connected(self):
+        if not self._server_connected and self.server_type and self.server_path:
+            await self.tool_client.connect_server(self.server_type, self.server_path)
+            self._server_connected = True
     
-    async def _ensure_slides_connected(self):
-        """Ensure Slides server is connected."""
-        if not self._slides_connected and self.slides_server_path:
-            await self.tool_client.connect_slides_server(self.slides_server_path)
-            self._slides_connected = True
-    
-    async def setup_blender_executor(self, 
-                                     blender_server_path: str, 
-                                     blender_command: str, 
-                                     blender_file: str,
-                                     blender_script: str, 
-                                     script_save: str,
-                                     render_save: str, 
-                                     blender_save: Optional[str] = None):
-        """Setup the Blender executor with configuration."""
-        await self._ensure_blender_connected(blender_server_path)
-        
-        self.blender_config = {
-            "blender_command": blender_command,
-            "blender_file": blender_file,
-            "blender_script": blender_script,
-            "script_save": script_save,
-            "render_save": render_save,
-            "blender_save": blender_save
-        }
-        
-        result = await self.tool_client.initialize_blender_executor(**self.blender_config)
+    async def setup_executor(self, **kwargs):
+        await self._ensure_server_connected()
+        self.executor_config = kwargs
+        result = await self.tool_client.initialize_executor(self.server_type, **kwargs)
         return result
     
-    async def setup_slides_executor(self, code_save: str):
-        """Setup the Slides executor with configuration."""
-        await self._ensure_slides_connected()
-        
-        self.slides_config = {
-            "code_save": code_save
-        }
-        
-        return {"status": "success", "message": "Slides executor configured"}
-    
-    def _build_system_prompt(self, hints: str, init_code: str, init_image_path: str, 
-                           target_image_path: str, target_description: str = None) -> List[Dict]:
+    def _build_system_prompt(self, 
+                             mode: str, 
+                             task_name: str, 
+                             init_code_path: str = None, 
+                             init_image_path: str = None, 
+                             target_image_path: str = None, 
+                             target_description: str = None) -> List[Dict]:
         """
         Build the system prompt for the generator.
         """
@@ -287,27 +189,36 @@ class GeneratorAgent:
         # Add system prompt
         full_prompt.append({
             "role": "system",
-            "content": """You are a code generation agent proficient in Blender Python scripting. Your task is to edit code to transform an initial 3D scene into a target scene. After each code edit, your code will be passed to a validator, which will provide feedback on the result. Based on this feedback, you must iteratively refine your code edits. This process will continue across multiple rounds of dialogue. In each round, you must adhere to a fixed output format."""
+            "content": prompts_dict[mode]['system_prompt']
         })
         
         # Add initial code & code analysis
+        init_code = open(init_code_path, 'r').read()
         user_content = [{
             "type": "text",
             "text": f"Initial Code:\n```python\n{init_code}\n```"
         }]
         
-        code_analysis = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a Blender Python code analysis expert."},
-                {"role": "user", "content": f"Please analyze the following Blender Python code line by line, explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
-            ]
-        )
-        code_analysis = code_analysis.choices[0].message.content
-        user_content.append({
-            "type": "text",
-            "text": f"Code Analysis:\n{code_analysis}"
-        })
+        # Add code analysis
+        if mode == "blendergym":
+            code_analysis = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a Blender Python code analysis expert."},
+                    {"role": "user", "content": f"Please analyze the following Blender Python code line by line, explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
+                ]
+            )
+            code_analysis = code_analysis.choices[0].message.content
+            user_content.append({
+                "type": "text",
+                "text": f"Code Analysis:\n{code_analysis}"
+            })
+        elif mode == "autopresent":
+            code_analysis = prompts_dict[mode]['api_library']
+            user_content.append({
+                "type": "text",
+                "text": f"{code_analysis}"
+            })
         
         # Add initial images
         init_image_path_1 = os.path.join(init_image_path, 'render1.png')
@@ -321,7 +232,8 @@ class GeneratorAgent:
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_1)}"}
             })
         else:
-            logging.error(f"Initial image {init_image_path_1} does not exist!")
+            # At least we need one initial image
+            raise ValueError(f"Initial image {init_image_path_1} does not exist!")
         
         init_image_path_2 = os.path.join(init_image_path, 'render2.png')
         if os.path.exists(init_image_path_2):
@@ -334,50 +246,49 @@ class GeneratorAgent:
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_2)}"}
             })
         
-        # Add target images
-        target_image_path_1 = os.path.join(target_image_path, 'render1.png')
-        if os.path.exists(target_image_path_1):
+        if mode == "blendergym":
+            # Add target images (for mode `blendergym`)
+            target_image_path_1 = os.path.join(target_image_path, 'render1.png')
+            if os.path.exists(target_image_path_1):
+                user_content.append({
+                    "type": "text",
+                    "text": "Target Image (View 1):"
+                })
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
+                })
+            else:
+                logging.error(f"Target image {target_image_path_1} does not exist!")
+            
+            target_image_path_2 = os.path.join(target_image_path, 'render2.png')
+            if os.path.exists(target_image_path_2):
+                user_content.append({
+                    "type": "text",
+                    "text": "Target Image (View 2):"
+                })
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}
+                })
+        elif mode == "autopresent":
+            # Add target description (for mode `autopresent`)
             user_content.append({
                 "type": "text",
-                "text": "Target Image (View 1):"
-            })
-            user_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
-            })
-        else:
-            logging.error(f"Target image {target_image_path_1} does not exist!")
-        
-        target_image_path_2 = os.path.join(target_image_path, 'render2.png')
-        if os.path.exists(target_image_path_2):
-            user_content.append({
-                "type": "text",
-                "text": "Target Image (View 2):"
-            })
-            user_content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}
+                "text": f"Task Instruction:\n{target_description}"
             })
         
         # Add hints 
-        if hints is not None:
+        if prompts_dict[mode]['generator_hints'][task_name] is not None:
             user_content.append({
                 "type": "text",
-                "text": f"Hints:\n{hints}"
+                "text": f"Hints:\n{prompts_dict[mode]['generator_hints'][task_name]}"
             })
         
         # Add output format
         user_content.append({
             "type": "text",
-            "text": """After each code edit, your code will be passed to a validator, which will provide feedback on the result. Based on this feedback, you must iteratively refine your code edits. This process will continue across multiple rounds of dialogue. In each round, you must follow a fixed output format. Output Format (keep this format for each round):
-1. Thought: Analyze the current state and provide a clear plan for the required changes.
-2. Code Edition: Provide your code modifications in the following format:
-   -: [lines to remove]
-   +: [lines to add]
-3. Full Code: Merge your code changes into the full code:
-```python
-[full code]
-```"""
+            "text": "After each code edit, your code will be passed to a validator, which will provide feedback on the result. Based on this feedback, you must iteratively refine your code edits. This process will continue across multiple rounds of dialogue. In each round, you must follow a fixed output format. Output Format (keep this format for each round):\n1. Thought: Analyze the current state and provide a clear plan for the required changes.\n2. Code Edition: Provide your code modifications in the following format:\n-: [lines to remove]\n+: [lines to add]\n3. Full Code: Merge your code changes into the full code:\n```python\n[full code]\n```"
         })
         
         full_prompt.append({
@@ -439,21 +350,16 @@ class GeneratorAgent:
             
             # Automatically execute the generated code with configured executor
             execution_result = None
-            if self.blender_config and self._blender_connected:
+            if self._server_connected:
                 try:
-                    execution_result = await self.tool_client.exec_blender_script(full_code, self.current_round)
-                    logging.info(f"Blender execution completed for round {self.current_round}")
-                except Exception as e:
-                    logging.error(f"Blender execution failed: {e}")
-                    execution_result = {"status": "error", "error": str(e)}
-            elif self.slides_config and self._slides_connected:
-                try:
-                    execution_result = await self.tool_client.exec_slides_script(
-                        full_code, self.current_round, self.slides_config["code_save"]
+                    execution_result = await self.tool_client.exec_script(
+                        server_type=self.server_type,
+                        code=full_code,
+                        round_num=self.current_round,
                     )
-                    logging.info(f"Slides execution completed for round {self.current_round}")
+                    logging.info(f"{self.server_type.capitalize()} execution completed for round {self.current_round}")
                 except Exception as e:
-                    logging.error(f"Slides execution failed: {e}")
+                    logging.error(f"{self.server_type.capitalize()} execution failed: {e}")
                     execution_result = {"status": "error", "error": str(e)}
             
             return {
@@ -510,6 +416,7 @@ def main():
 
     @mcp.tool()
     async def initialize_generator(
+        mode: str,
         vision_model: str,
         api_key: str,
         thought_save: str,
@@ -537,6 +444,7 @@ def main():
         """
         try:
             agent = GeneratorAgent(
+                mode=mode,
                 vision_model=vision_model,
                 api_key=api_key,
                 thought_save=thought_save,
@@ -551,16 +459,12 @@ def main():
             )
             agent_holder['agent'] = agent
             
-            # Determine which executor to setup based on provided parameters
-            blender_setup = all([blender_command, blender_file, blender_script, script_save, render_save])
-            slides_setup = code_save is not None
-            
             setup_results = []
             
             # Setup Blender executor if parameters are provided
-            if blender_setup:
+            if mode == "blendergym":
                 try:
-                    setup_result = await agent.setup_blender_executor(
+                    setup_result = await agent.setup_executor(
                         blender_command=blender_command,
                         blender_file=blender_file,
                         blender_script=blender_script,
@@ -573,12 +477,15 @@ def main():
                     setup_results.append(("Blender", {"status": "error", "error": str(e)}))
             
             # Setup Slides executor if parameters are provided
-            if slides_setup:
+            elif mode == "autopresent":
                 try:
-                    setup_result = await agent.setup_slides_executor(code_save=code_save)
+                    setup_result = await agent.setup_executor(code_save=code_save)
                     setup_results.append(("Slides", setup_result))
                 except Exception as e:
                     setup_results.append(("Slides", {"status": "error", "error": str(e)}))
+            
+            else:
+                raise NotImplementedError("Mode not implemented")
             
             # Determine overall status
             if not setup_results:

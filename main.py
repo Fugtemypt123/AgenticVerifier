@@ -216,6 +216,7 @@ async def main():
 
         # Create generator session
         generator_params = {
+            "mode": args.mode,
             "vision_model": args.vision_model,
             "api_key": args.api_key,
             "task_name": args.task_name,
@@ -252,6 +253,7 @@ async def main():
         
         # Create verifier session
         verifier_params = {
+            "mode": args.mode,
             "vision_model": args.vision_model,
             "api_key": args.api_key,
             "max_rounds": args.max_rounds,

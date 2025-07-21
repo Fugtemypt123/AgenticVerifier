@@ -10,8 +10,7 @@ import time
 import argparse
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Optional
-from prompts.blender import blender_generator_hints, blender_verifier_hints
+from typing import List, Dict
 
 api_key = os.getenv("OPENAI_API_KEY")
 

@@ -5,11 +5,15 @@ import io
 import re
 from pathlib import Path
 from PIL import Image
-from typing import Tuple
+from typing import Optional
 import logging
-from mcp import McpServer, ToolResult
+from mcp.server.fastmcp import FastMCP
 
-class PPTXExecutor:
+mcp = FastMCP("slides-executor")
+
+_executor = None
+
+class SlidesExecutor:
     def __init__(self, code_save: str):
         self.code_save = Path(code_save)
         self.code_save.mkdir(parents=True, exist_ok=True)
@@ -59,26 +63,37 @@ class PPTXExecutor:
         except Exception as e:
             return {"status": "failure", "output": str(e)}
 
+@mcp.tool()
+def initialize_executor(code_save: str) -> dict:
+    """
+    初始化 Slides 执行器，设置所有必要的参数。
+    """
+    global _executor
+    try:
+        _executor = SlidesExecutor(code_save)
+        return {"status": "success", "message": "Slides executor initialized successfully"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def exec_pptx(code: str, round: int) -> dict:
+    """
+    Compile and render PPTX from Python code.
+    Args:
+        code: str - Python code that generates a .pptx
+        round: int - round index
+    """
+    global _executor
+    if _executor is None:
+        return {"status": "error", "error": "Executor not initialized. Call initialize_executor first."}
+    try:
+        result = _executor.execute(code, round)
+        return {"status": "success", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
 def main():
-    server = McpServer()
-
-    @server.tool()
-    def exec_pptx(code: str, round: int, code_save: str) -> ToolResult:
-        """
-        Compile and render PPTX from Python code.
-        Args:
-            code: str - Python code that generates a .pptx
-            round: int - round index
-            code_save: str - folder to save code and output
-        """
-        try:
-            executor = PPTXExecutor(code_save)
-            result = executor.execute(code, round)
-            return ToolResult(result=result)
-        except Exception as e:
-            return ToolResult(isError=True, error=str(e))
-
-    server.run()
+    mcp.run(transport="stdio")
 
 if __name__ == "__main__":
     main()
