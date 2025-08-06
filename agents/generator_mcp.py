@@ -29,7 +29,6 @@ class ExternalToolClient:
             server_params = StdioServerParameters(
                 command="python",
                 args=[server_path],
-                env=None
             )
             stdio_transport = await asyncio.wait_for(
                 self.exit_stack.enter_async_context(stdio_client(server_params)),

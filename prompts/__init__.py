@@ -1,5 +1,5 @@
-from autopresent import *
-from blendergym import *
+from .autopresent import *
+from .blendergym import *
 
 prompts_dict = {
     'blendergym': {
