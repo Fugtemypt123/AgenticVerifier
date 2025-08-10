@@ -12,6 +12,13 @@ from mcp.server.fastmcp import FastMCP
 import logging
 import openai
 
+# 创建全局 MCP 实例
+mcp = FastMCP("image-server")
+
+# 全局工具实例
+_image_tool = None
+_pil_executor = None
+
 class PILExecutor:
     def __init__(self):
         self._setup_environment()
@@ -116,39 +123,140 @@ class ImageDifferentiationTool:
         )
         return response.choices[0].message.content
 
+@mcp.tool()
+def initialize_executor(api_key: str) -> dict:
+    """
+    初始化ImageDifferentiationTool，设置api_key。
+    """
+    global _image_tool
+    try:
+        _image_tool = ImageDifferentiationTool(api_key=api_key)
+        return {"status": "success", "message": "ImageDifferentiationTool initialized with api_key."}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def exec_pil_code(code: str) -> dict:
+    """
+    执行传入的 PIL Python 代码，并返回执行结果。
+    """
+    global _pil_executor
+    if _pil_executor is None:
+        _pil_executor = PILExecutor()
+    
+    try:
+        result = _pil_executor.execute(code)
+        return {"status": "success", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def compare_images(path1: str, path2: str) -> dict:
+    """
+    比较两个图像并返回差异描述。
+    需要先调用 initialize_executor 进行初始化。
+    """
+    global _image_tool
+    if _image_tool is None:
+        return {"status": "error", "error": "ImageDifferentiationTool not initialized. Call initialize_executor first."}
+    
+    try:
+        result = _image_tool.describe_difference(path1, path2)
+        return {"status": "success", "description": result}
+    except Exception as e:
+        logging.error(f"Comparison failed: {e}")
+        return {"status": "error", "error": str(e)}
+
 def main():
-    server = FastMCP("image-server")
+    # 检查是否直接运行此脚本（用于测试）
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        print("Running image.py tools test...")
+        test_tools()
+    else:
+        # 正常运行 MCP 服务器
+        mcp.run(transport="stdio")
 
-    @server.tool()
-    def initialize_executor(api_key: str) -> dict:
-        """
-        初始化ImageDifferentiationTool，设置api_key。
-        """
-        try:
-            global _image_tool
-            _image_tool = ImageDifferentiationTool(api_key=api_key)
-            return {"status": "success", "message": "ImageDifferentiationTool initialized with api_key."}
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+def test_tools():
+    """测试所有工具函数"""
+    print("=" * 50)
+    print("Testing Image Tools")
+    print("=" * 50)
+    
+    # 测试 1: 初始化执行器
+    print("\n1. Testing initialize_executor...")
+    try:
+        # 尝试从环境变量获取 API key，如果没有则使用测试 key
+        api_key = os.getenv("OPENAI_API_KEY", "test_key_for_testing")
+        result = initialize_executor(api_key)
+        print(f"Result: {result}")
+        if result.get("status") == "success":
+            print("✓ initialize_executor passed")
+        else:
+            print("✗ initialize_executor failed")
+    except Exception as e:
+        print(f"✗ initialize_executor failed with exception: {e}")
+    
+    # 测试 2: 执行 PIL 代码
+    print("\n2. Testing exec_pil_code...")
+    try:
+        # 创建一个简单的测试图像
+        test_code = """
+from PIL import Image
+import numpy as np
 
-    @server.tool()
-    def exec_pil_code(code: str) -> dict:
-        tool = PILExecutor()
-        return tool.execute(code)
-
-    @server.tool()
-    def compare_images(path1: str, path2: str) -> dict:
-        try:
-            global _image_tool
-            if '_image_tool' not in globals() or _image_tool is None:
-                raise RuntimeError("ImageDifferentiationTool not initialized. Call initialize_executor first.")
-            result = _image_tool.describe_difference(path1, path2)
-            return {"description": result}
-        except Exception as e:
-            logging.error(f"Comparison failed: {e}")
-            return {"error": str(e)}
-
-    server.run(transport="stdio")
+# 创建一个简单的测试图像
+img = Image.new('RGB', (100, 100), color='red')
+result = img
+"""
+        result = exec_pil_code(test_code)
+        print(f"Result: {result}")
+        if result.get("status") == "success":
+            print("✓ exec_pil_code passed")
+        else:
+            print("✗ exec_pil_code failed")
+    except Exception as e:
+        print(f"✗ exec_pil_code failed with exception: {e}")
+    
+    # 测试 3: 比较图像（需要创建测试图像文件）
+    print("\n3. Testing compare_images...")
+    try:
+        # 创建两个测试图像文件
+        test_img1 = Image.new('RGB', (100, 100), color='red')
+        test_img2 = Image.new('RGB', (100, 100), color='blue')
+        
+        test_path1 = "/home/shaofengyin/AgenticVerifier/output/renders/1/render1.png"
+        test_path2 = "/home/shaofengyin/AgenticVerifier/output/renders/2/render1.png"
+        
+        test_img1.save(test_path1)
+        test_img2.save(test_path2)
+        
+        # 只有在有有效 API key 时才测试图像比较
+        if os.getenv("OPENAI_API_KEY"):
+            result = compare_images(test_path1, test_path2)
+            print(f"Result: {result}")
+            if result.get("status") == "success":
+                print("✓ compare_images passed")
+            else:
+                print("✗ compare_images failed")
+        else:
+            print("⚠ Skipping compare_images test (no OPENAI_API_KEY)")
+        
+        # 清理测试文件
+        if os.path.exists(test_path1):
+            os.remove(test_path1)
+        if os.path.exists(test_path2):
+            os.remove(test_path2)
+            
+    except Exception as e:
+        print(f"✗ compare_images failed with exception: {e}")
+    
+    print("\n" + "=" * 50)
+    print("Test completed!")
+    print("=" * 50)
+    print("\nTo run the MCP server normally, use:")
+    print("python image.py")
+    print("\nTo run tests, use:")
+    print("python image.py --test")
 
 if __name__ == "__main__":
     main()

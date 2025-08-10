@@ -104,6 +104,8 @@ class VerifierAgent:
         self.client = OpenAI(api_key=self.api_key)
         self.thought_save = thought_save
         self.max_rounds = max_rounds
+        self.target_image_path = None
+        self.current_image_path = None
         self.current_round = 0
         self.tool_client = ExternalToolClient()
         self._tools_connected = False
@@ -145,6 +147,7 @@ class VerifierAgent:
         if mode == 'blendergym':
             target_image_path_1 = os.path.join(target_image_path, 'render1.png')
             if os.path.exists(target_image_path_1):
+                self.target_image_path = os.path.abspath(target_image_path_1)
                 user_content.extend([
                     {"type": "text", "text": "Target Image (View 1):"},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}}
@@ -197,6 +200,7 @@ class VerifierAgent:
             view2_path = None
         scene_content = []
         if os.path.exists(view1_path):
+            self.current_image_path = os.path.abspath(view1_path)
             scene_content.extend([
                 {"type": "text", "text": f"Current scene (View 1):"},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view1_path)}"}}
@@ -254,23 +258,13 @@ class VerifierAgent:
         
     def _get_tools(self) -> List[Dict]:
         if self.mode == "blendergym" or self.mode == "autopresent":
-            return []
-            # return [{
-            #     "type": "function",
-            #     "function": {
-            #         "name": "compare_images",
-            #         "description": "A tool for comparing two images and identifying visual differences.",
-            #         "parameters": {
-            #             "type": "object",
-            #             "properties": {
-            #                 "current_image_path": {"type": "string"},
-            #                 "target_image_path": {"type": "string"},
-            #                 "view_name": {"type": "string"}
-            #             },
-            #             "required": ["current_image_path", "target_image_path"]
-            #         }
-            #     }
-            # }]
+            return [{
+                "type": "function",
+                "function": {
+                    "name": "compare_images",
+                    "description": "A tool for comparing current images and the target images, and identifying their visual differences."
+                }
+            }]
         elif self.mode == "blendergym-hard":
             return [{
                 "type": "function",
@@ -319,8 +313,8 @@ class VerifierAgent:
                     return {'text': f"Unknown operation: {op}", 'image': None}
             elif function_name == "compare_images":
                 output = await self.tool_client.call_tool("image", "compare_images", {
-                    "current_image_path": function_args.get("current_image_path", ""),
-                    "target_image_path": function_args.get("target_image_path", "")
+                    "current_image_path": self.current_image_path,
+                    "target_image_path": self.target_image_path
                 })
                 return {'text': output.get('description', ''), 'image': None}
             else:

@@ -4,9 +4,16 @@ import json
 import math
 import tempfile
 import os
+import sys
 from pathlib import Path
 import logging
 from mcp.server.fastmcp import FastMCP
+
+# 创建全局 MCP 实例
+mcp = FastMCP("scene-server")
+
+# 全局工具实例
+_investigator = None
 
 # 内置工具
 
@@ -149,34 +156,107 @@ class Investigator3D:
         self.cam.matrix_world.translation = (t.x+x, t.y+y, t.z+z)
         return self._render()
 
-# MCP Server 主体
+@mcp.tool()
+def get_scene_info(blender_path: str) -> dict:
+    """
+    获取 Blender 场景信息，包括对象、材质、灯光、相机和渲染设置。
+    """
+    try:
+        info = GetSceneInfo(Path(blender_path)).get_info()
+        return {"status": "success", "info": info}
+    except Exception as e:
+        logging.error(f"Failed to get scene info: {e}")
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def initialize_investigator(thoughtprocess_save: str, blender_path: str, round_num: int) -> dict:
+    """
+    初始化 3D 场景调查工具。
+    """
+    global _investigator
+    try:
+        _investigator = Investigator3D(thoughtprocess_save, blender_path, round_num)
+        return {"status": "success", "message": "Investigator3D initialized successfully"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) -> dict:
+    """
+    将相机聚焦到指定对象上。
+    """
+    global _investigator
+    if _investigator is None:
+        return {"status": "error", "error": "Investigator3D not initialized. Call initialize_investigator first."}
+    
+    try:
+        img = _investigator.focus_on_object(object_name)
+        return {"status": "success", "image": img}
+    except Exception as e:
+        logging.error(f"Focus failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def zoom(save_dir: str, direction: str) -> dict:
+    """
+    缩放相机视图。
+    """
+    global _investigator
+    if _investigator is None:
+        return {"status": "error", "error": "Investigator3D not initialized. Call initialize_investigator first."}
+    
+    try:
+        img = _investigator.zoom(direction)
+        return {"status": "success", "image": img}
+    except Exception as e:
+        logging.error(f"Zoom failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+@mcp.tool()
+def move(save_dir: str, direction: str) -> dict:
+    """
+    移动相机位置。
+    """
+    global _investigator
+    if _investigator is None:
+        return {"status": "error", "error": "Investigator3D not initialized. Call initialize_investigator first."}
+    
+    try:
+        img = _investigator.move_camera(direction)
+        return {"status": "success", "image": img}
+    except Exception as e:
+        logging.error(f"Move failed: {e}")
+        return {"status": "error", "error": str(e)}
 
 def main():
-    server = FastMCP("scene-server")
+    # 检查是否直接运行此脚本（用于测试）
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        print("Running scene.py tools test...")
+        test_tools()
+    else:
+        # 正常运行 MCP 服务器
+        mcp.run(transport="stdio")
 
-    @server.tool()
-    def get_scene_info(blender_path: str) -> dict:
-        info = GetSceneInfo(Path(blender_path)).get_info()
-        return info
-
-    @server.tool()
-    def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) -> dict:
-        img = Investigator3D(save_dir, blender_path, round_num).focus_on_object(object_name)
-        return {"image": img}
-
-    @server.tool()
-    def zoom(save_dir: str, direction: str) -> dict:
-        inst = Investigator3D(save_dir, "", 0)  # 注意：可重构以保持状态
-        img = inst.zoom(direction)
-        return {"image": img}
-
-    @server.tool()
-    def move(save_dir: str, direction: str) -> dict:
-        inst = Investigator3D(save_dir, "", 0)
-        img = inst.move_camera(direction)
-        return {"image": img}
-
-    server.run(transport="stdio")
+def test_tools():
+    """测试所有工具函数"""
+    print("=" * 50)
+    print("Testing Scene Tools")
+    print("=" * 50)
+    
+    # 注意：由于这些工具需要 Blender 环境，测试可能需要实际的 .blend 文件
+    print("\n⚠ Note: These tools require Blender environment and .blend files")
+    print("To test properly, you need:")
+    print("1. Blender installed and accessible")
+    print("2. A valid .blend file")
+    print("3. Proper file paths")
+    
+    print("\n" + "=" * 50)
+    print("Test completed!")
+    print("=" * 50)
+    print("\nTo run the MCP server normally, use:")
+    print("python scene.py")
+    print("\nTo run tests, use:")
+    print("python scene.py --test")
 
 if __name__ == "__main__":
     main()
