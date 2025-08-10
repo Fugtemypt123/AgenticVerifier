@@ -71,7 +71,7 @@ class Executor:
 
     def execute(self, code: str, round: int) -> Dict:
         script_file = self.script_path / f"{round}.py"
-        render_file = self.render_path / f"{round}.png"
+        render_file = self.render_path / f"{round}"
         with open(script_file, "w") as f:
             f.write(code)
         success, stdout, stderr = self._execute_blender(str(script_file), str(render_file))

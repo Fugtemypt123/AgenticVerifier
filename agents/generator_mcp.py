@@ -417,7 +417,7 @@ def main():
         init_code_path: str = None,
         init_image_path: str = None,
         target_image_path: str = None,
-        target_description: str = None,
+        target_description: Optional[str] = None,
         # Blender executor parameters
         blender_server_path: str = None,
         blender_command: str = None,
@@ -425,7 +425,7 @@ def main():
         blender_script: str = None,
         script_save: str = None,
         render_save: str = None,
-        blender_save: str = None,
+        blender_save: Optional[str] = None,
         # Slides executor parameters
         slides_server_path: str = None,
         code_save: str = None

@@ -96,8 +96,8 @@ class VerifierAgent:
                  max_rounds: int = 10, 
                  target_image_path: Optional[str] = None,
                  target_descirption: Optional[str] = None,
-                 image_server_path: str = None,
-                 scene_server_path: str = None):
+                 image_server_path: Optional[str] = None,
+                 scene_server_path: Optional[str] = None):
         self.mode = mode
         self.vision_model = vision_model
         self.api_key = api_key
@@ -254,22 +254,23 @@ class VerifierAgent:
         
     def _get_tools(self) -> List[Dict]:
         if self.mode == "blendergym" or self.mode == "autopresent":
-            return [{
-                "type": "function",
-                "function": {
-                    "name": "compare_images",
-                    "description": "A tool for comparing two images and identifying visual differences.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "current_image_path": {"type": "string"},
-                            "target_image_path": {"type": "string"},
-                            "view_name": {"type": "string"}
-                        },
-                        "required": ["current_image_path", "target_image_path"]
-                    }
-                }
-            }]
+            return []
+            # return [{
+            #     "type": "function",
+            #     "function": {
+            #         "name": "compare_images",
+            #         "description": "A tool for comparing two images and identifying visual differences.",
+            #         "parameters": {
+            #             "type": "object",
+            #             "properties": {
+            #                 "current_image_path": {"type": "string"},
+            #                 "target_image_path": {"type": "string"},
+            #                 "view_name": {"type": "string"}
+            #             },
+            #             "required": ["current_image_path", "target_image_path"]
+            #         }
+            #     }
+            # }]
         elif self.mode == "blendergym-hard":
             return [{
                 "type": "function",
@@ -349,10 +350,10 @@ def main():
         thought_save: str,
         task_name: str,
         max_rounds: int = 10,
-        target_image_path: str = None,
-        target_descirption: str = None,
-        image_server_path: str = None,
-        scene_server_path: str = None
+        target_image_path: Optional[str] = None,
+        target_descirption: Optional[str] = None,
+        image_server_path: Optional[str] = None,
+        scene_server_path: Optional[str] = None
     ) -> dict:
         
         try:

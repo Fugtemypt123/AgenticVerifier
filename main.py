@@ -100,7 +100,6 @@ class VerifierAgentClient:
         self.session = None
         self.exit_stack = AsyncExitStack()
         self.initialized = False
-        self.session_id = None
 
     async def connect(self):
         """Connect to the Verifier MCP server."""
@@ -122,14 +121,13 @@ class VerifierAgentClient:
         if not self.session:
             raise RuntimeError("Not connected. Call connect() first.")
         
-        result = await self.session.call_tool("create_verification_session", kwargs)
+        result = await self.session.call_tool("initialize_verifier", kwargs)
         if result.content and len(result.content) > 0:
             content = result.content[0].text
             try:
                 json_data = json.loads(content)
                 if json_data.get("status") == "success":
                     self.initialized = True
-                    self.session_id = json_data.get("session_id")
                     return "success"
             except json.JSONDecodeError:
                 pass
@@ -137,28 +135,26 @@ class VerifierAgentClient:
 
     async def verify_scene(self, code: str, render_path: str, round_num: int):
         """Verify the scene with given parameters."""
-        if not self.initialized or not self.session_id:
+        if not self.initialized:
             raise RuntimeError("Verifier not initialized. Call create_session() first.")
         
         result = await self.session.call_tool("verify_scene", {
-            "session_id": self.session_id,
             "code": code,
             "render_path": render_path,
             "round_num": round_num
         })
         if result.content and len(result.content) > 0:
             content = result.content[0].text
+            print("verifier result: ", content)
             return json.loads(content)
         raise RuntimeError(f"Failed to verify scene: {result.content}")
 
     async def save_thought_process(self):
         """Save the thought process."""
-        if not self.initialized or not self.session_id:
+        if not self.initialized:
             raise RuntimeError("Verifier not initialized. Call create_session() first.")
         
-        result = await self.session.call_tool("save_thought_process", {
-            "session_id": self.session_id
-        })
+        result = await self.session.call_tool("save_thought_process", {})
         if not (result.content and len(result.content) > 0 and 
                 ('"status": "success"' in result.content[0].text or '"status":"success"' in result.content[0].text)):
             raise RuntimeError(f"Failed to save thought process: {result.content}")
@@ -180,7 +176,7 @@ async def main():
     parser.add_argument("--target-image-path", default="data/blendergym/blendshape1/renders/goal", help="Path to target images")
     parser.add_argument("--target-description", default=None, help="Target description for 2D mode")
     parser.add_argument("--output-dir", default="output", help="Output directory")
-    parser.add_argument("--task-name", default="blendershape", help="Task name for hints extraction")
+    parser.add_argument("--task-name", default="blendshape", help="Task name for hints extraction")
     
     # Agent server paths 
     parser.add_argument("--generator-script", default="agents/generator_mcp.py", help="Generator MCP script path")
@@ -225,7 +221,7 @@ async def main():
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
             "target_description": args.target_description,
-            "thought_save" : args.output_dir / "thoughts"
+            "thought_save" : args.output_dir + "/generator_thoughts.json"
         }
         
         # Add mode-specific parameters
@@ -235,16 +231,16 @@ async def main():
                 "blender_command": args.blender_command,
                 "blender_file": args.blender_file,
                 "blender_script": args.blender_script,
-                "render_save": args.output_dir / "renders",
-                "script_save": args.output_dir / "scripts",
-                "blender_save": args.output_dir / "blender_file.blend" if args.save_blender_file else None
+                "render_save": args.output_dir + "/renders",
+                "script_save": args.output_dir + "/scripts",
+                "blender_save": args.output_dir + "/blender_file.blend" if args.save_blender_file else None
             })
         elif args.mode == "autopresent":
             generator_params.update({
                 "slides_server_path": args.slides_server_path,
-                "code_save": args.output_dir / "scripts",
-                "image_save": args.output_dir / "images",
-                "slide_save": args.output_dir / "slides",
+                "code_save": args.output_dir + "/scripts",
+                "image_save": args.output_dir + "/images",
+                "slide_save": args.output_dir + "/slides",
             })
         else:
             raise NotImplementedError("Mode not implemented")
@@ -260,7 +256,7 @@ async def main():
             "task_name": args.task_name,
             "target_image_path": args.target_image_path,
             "target_description": args.target_description,
-            "thought_save": args.output_dir / "thoughts"
+            "thought_save": args.output_dir + "/verifier_thoughts.json"
         }
         
         # Add mode-specific parameters
@@ -320,7 +316,7 @@ async def main():
             print("Step 3: Verifier analyzing scene...")
             verify_result = await verifier.verify_scene(
                 code=code,
-                render_path=result,
+                render_path=result["output"],
                 round_num=round_num
             )
             
