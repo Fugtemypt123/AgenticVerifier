@@ -184,7 +184,15 @@ class VerifierAgent:
         if self.server_type == "image":
             result = await self.tool_client.initialize_executor("image", **kwargs)
             return result
-        # No initialization needed for scene server 
+        elif self.server_type == "scene":
+            # Initialize scene investigator
+            blender_path = kwargs.get("blender_path", None)
+            save_dir = kwargs.get("save_dir", None)
+            result = await self.tool_client.call_tool("scene", "initialize_investigator", {
+                "thoughtprocess_save": save_dir,
+                "blender_path": blender_path,
+            })
+            return result
         return {"status": "success", "message": "No executor setup needed for this mode."}
         
     async def verify_scene(self, code: str, render_path: str, round_num: int) -> Dict[str, Any]:
@@ -250,7 +258,7 @@ class VerifierAgent:
                         result = {"status": "continue", "output": message.content}
                     break
             self.current_round += 1
-            self.save_thought_process()
+            self.save_thought_process(round_num)
             return result
         except Exception as e:
             logging.error(f"Verification failed: {e}")
@@ -262,7 +270,7 @@ class VerifierAgent:
                 "type": "function",
                 "function": {
                     "name": "compare_images",
-                    "description": "A tool for comparing current images and the target images, and identifying their visual differences."
+                    "description": "A tool for comparing current images and the target images, and identifying their visual differences. This tool will automatically select suitable images for comparison, please always call this tool first."
                 }
             }]
         elif self.mode == "blendergym-hard":
@@ -274,9 +282,9 @@ class VerifierAgent:
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "operation": {"type": "string", "enum": ["focus", "zoom", "move"]},
-                            "object_name": {"type": "string"},
-                            "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"]}
+                            "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
+                            "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
+                            "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
                         },
                         "required": ["operation"]
                     }
@@ -291,21 +299,16 @@ class VerifierAgent:
                 op = function_args['operation']
                 if op == 'focus':
                     output = await self.tool_client.call_tool("scene", "focus", {
-                        "blender_path": function_args.get("blender_path", ""),
-                        "save_dir": function_args.get("save_dir", ""),
-                        "round_num": function_args.get("round_num", 0),
                         "object_name": function_args.get("object_name", "")
                     })
                     return {'text': f"Focused camera on object: {function_args.get('object_name', '')}", 'image': output.get('image')}
                 elif op == 'zoom':
                     output = await self.tool_client.call_tool("scene", "zoom", {
-                        "save_dir": function_args.get("save_dir", ""),
                         "direction": function_args.get("direction", "")
                     })
                     return {'text': f"Zoomed {function_args.get('direction', '')}", 'image': output.get('image')}
                 elif op == 'move':
                     output = await self.tool_client.call_tool("scene", "move", {
-                        "save_dir": function_args.get("save_dir", ""),
                         "direction": function_args.get("direction", "")
                     })
                     return {'text': f"Moved camera {function_args.get('direction', '')}", 'image': output.get('image')}
@@ -313,8 +316,8 @@ class VerifierAgent:
                     return {'text': f"Unknown operation: {op}", 'image': None}
             elif function_name == "compare_images":
                 output = await self.tool_client.call_tool("image", "compare_images", {
-                    "current_image_path": self.current_image_path,
-                    "target_image_path": self.target_image_path
+                    "path1": self.current_image_path,
+                    "path2": self.target_image_path
                 })
                 return {'text': output.get('description', ''), 'image': None}
             else:
@@ -322,9 +325,9 @@ class VerifierAgent:
         except Exception as e:
             return {'text': f"Error executing tool: {str(e)}", 'image': None}
         
-    def save_thought_process(self):
+    def save_thought_process(self, round_num: int):
         try:
-            with open(self.thought_save, "w") as f:
+            with open(self.thought_save + f"/{round_num}.json", "w") as f:
                 json.dump(self.memory, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logging.error(f"Failed to save thought process: {e}")
@@ -347,7 +350,8 @@ def main():
         target_image_path: Optional[str] = None,
         target_descirption: Optional[str] = None,
         image_server_path: Optional[str] = None,
-        scene_server_path: Optional[str] = None
+        scene_server_path: Optional[str] = None,
+        blender_save: Optional[str] = None,
     ) -> dict:
         
         try:
@@ -364,11 +368,15 @@ def main():
                 scene_server_path=scene_server_path
             )
             agent_holder['agent'] = agent
-            # Initialize image server executor
+            # Initialize server executor
             if mode == "blendergym" or mode == "autopresent":
                 setup_result = await agent.setup_executor(api_key=api_key)
                 if setup_result.get("status") != "success":
                     return {"status": "error", "error": f"Image server setup failed: {setup_result.get('error', setup_result)}"}
+            elif mode == "blendergym-hard":
+                setup_result = await agent.setup_executor(blender_path=blender_save, save_dir=thought_save)
+                if setup_result.get("status") != "success":
+                    return {"status": "error", "error": f"Scene server setup failed: {setup_result.get('error', setup_result)}"}
             await agent._ensure_tools_connected()
             return {"status": "success", "message": "Verifier Agent initialized and tool servers connected"}
         except Exception as e:

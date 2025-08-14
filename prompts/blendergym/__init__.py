@@ -33,4 +33,8 @@ blendergym_generator_format = """After each code edit, your code will be passed 
 [full code]
 ```"""
 
-blendergym_verifier_format = """Output Structure:\n1. Thought: Analyze the current state and provide a clear plan for the required changes.\n2. Visual Difference: Describe the main differences found (between the current and target scene). Only answer the most obvious 1-2 differences at a time, don't answer too many.\n3. Code Localization: Pinpoint locations in the code that could be modified to reduce or eliminate these most obvious differences.\n4. If the current scene is already very close to the target scene, just output 'OK!'."""
+blendergym_verifier_format = """Output Structure:
+1. Thought: Analyze the current state and provide a clear plan for the required changes.
+2. Visual Difference: Describe the main differences found (between the current and target scene). Only answer the most obvious 1-2 differences at a time, don't answer too many.
+3. Code Localization: Pinpoint locations in the code that could be modified to reduce or eliminate these most obvious differences.
+4. If the current scene is already very close to the target scene, just output 'OK!'."""

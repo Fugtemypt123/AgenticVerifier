@@ -256,7 +256,7 @@ async def main():
             "task_name": args.task_name,
             "target_image_path": args.target_image_path,
             "target_description": args.target_description,
-            "thought_save": args.output_dir + "/verifier_thoughts.json"
+            "thought_save": args.output_dir + "/verifier_thoughts",
         }
         
         # Add mode-specific parameters
@@ -264,6 +264,10 @@ async def main():
             verifier_params.update({
                 "image_server_path": args.image_server_path,
                 "scene_server_path": None
+            })
+        elif args.mode == "blendergym-hard":
+            verifier_params.update({
+                "blender_save": args.output_dir + "/blender_file.blend" if args.save_blender_file else None,
             })
         else:
             raise NotImplementedError("Mode not implemented")
@@ -317,7 +321,7 @@ async def main():
             verify_result = await verifier.verify_scene(
                 code=code,
                 render_path=result["output"],
-                round_num=round_num
+                round_num=round_num,
             )
             
             print(f"Verifier result: {verify_result.get('status')}")

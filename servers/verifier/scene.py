@@ -83,12 +83,10 @@ class GetSceneInfo:
             return {}
 
 class Investigator3D:
-    def __init__(self, thoughtprocess_save: str, blender_path: str, round_num: int):
-        self.blender_path = blender_path
-        self.thoughtprocess_save = thoughtprocess_save
-        self.round_num = round_num
+    def __init__(self, thoughtprocess_save: str, blender_path: str):
         self._load_blender_file()
-        self.base = Path(thoughtprocess_save) / f"investigator_{round_num}"
+        self.blender_path = blender_path
+        self.base = Path(thoughtprocess_save) / "investigator"
         self.base.mkdir(parents=True, exist_ok=True)
         self.cam = self._get_or_create_cam()
         self.target = None
@@ -183,19 +181,19 @@ def get_scene_info(blender_path: str) -> dict:
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
-def initialize_investigator(thoughtprocess_save: str, blender_path: str, round_num: int) -> dict:
+def initialize_investigator(thoughtprocess_save: str, blender_path: str) -> dict:
     """
     初始化 3D 场景调查工具。
     """
     global _investigator
     try:
-        _investigator = Investigator3D(thoughtprocess_save, str(blender_path), round_num)
+        _investigator = Investigator3D(thoughtprocess_save, str(blender_path))
         return {"status": "success", "message": "Investigator3D initialized successfully"}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
-def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) -> dict:
+def focus(object_name: str) -> dict:
     """
     将相机聚焦到指定对象上。
     """
@@ -216,7 +214,7 @@ def focus(blender_path: str, save_dir: str, round_num: int, object_name: str) ->
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
-def zoom(save_dir: str, direction: str) -> dict:
+def zoom(direction: str) -> dict:
     """
     缩放相机视图。
     """
@@ -236,7 +234,7 @@ def zoom(save_dir: str, direction: str) -> dict:
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
-def move(save_dir: str, direction: str) -> dict:
+def move(direction: str) -> dict:
     """
     移动相机位置。
     """
@@ -313,7 +311,7 @@ def test_tools():
     # 测试 2: 初始化调查工具
     print("\n2. Testing initialize_investigator...")
     try:
-        result = initialize_investigator(test_save_dir, blender_file, test_round)
+        result = initialize_investigator(test_save_dir, blender_file)
         print(f"Result: {result}")
         if result.get("status") == "success":
             print("✓ initialize_investigator passed")
@@ -327,7 +325,7 @@ def test_tools():
     # 测试 3: 聚焦对象
     print("\n3. Testing focus...")
     try:
-        result = focus(blender_file, test_save_dir, test_round, first_object)
+        result = focus(first_object)
         print(f"Result: {result}")
         if result.get("status") == "success":
             print("✓ focus passed")
@@ -343,7 +341,7 @@ def test_tools():
     # 测试 4: 缩放功能
     print("\n4. Testing zoom...")
     try:
-        result = zoom(test_save_dir, "in")
+        result = zoom("in")
         print(f"Result: {result}")
         if result.get("status") == "success":
             print("✓ zoom passed")
@@ -356,7 +354,7 @@ def test_tools():
     # 测试 5: 移动功能
     print("\n5. Testing move...")
     try:
-        result = move(test_save_dir, "up")
+        result = move("up")
         print(f"Result: {result}")
         if result.get("status") == "success":
             print("✓ move passed")
