@@ -12,13 +12,13 @@ import subprocess
 import asyncio
 import signal
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
 api_key = os.getenv("OPENAI_API_KEY")
 
-def load_blendergym_dataset(base_path: str, task_name: str, task_id: str) -> List[Dict]:
+def load_blendergym_dataset(base_path: str, task_name: str, task_id: Optional[str] = None) -> List[Dict]:
     """
     Load BlenderGym dataset structure.
     
@@ -71,11 +71,11 @@ def load_blendergym_dataset(base_path: str, task_name: str, task_id: str) -> Lis
             
         task_config = {
             "task_name": task_name,
-            "task_dir": task_dir,
-            "init_code_path": start_code_path,
-            "init_image_path": start_renders_dir,
-            "target_image_path": goal_renders_dir,
-            "blender_file": blender_file,
+            "task_dir": str(task_dir),
+            "init_code_path": str(start_code_path),
+            "init_image_path": str(start_renders_dir),
+            "target_image_path": str(goal_renders_dir),
+            "blender_file": str(blender_file),
         }
         tasks.append(task_config)
         print(f"Found task: {task_name}/{task_dir.name}")
@@ -93,13 +93,13 @@ def run_blendergym_task(task_config: Dict, args) -> tuple:
     Returns:
         Tuple of (task_name, success: bool, error_message: str)
     """
-    task_name = f"{task_config['task_name']}/{task_config['task_dir'].name}"
+    task_name = task_config['task_dir'].split('/')[-1]
     print(f"\n{'='*60}")
     print(f"Running task: {task_name}")
     print(f"{'='*60}")
     
     # Prepare output directories
-    output_base = Path(args.output_dir) / task_config['task_dir'].name
+    output_base = Path(args.output_dir + "/" + task_name)
     
     # Create directories
     output_base.mkdir(parents=True, exist_ok=True)
@@ -117,8 +117,8 @@ def run_blendergym_task(task_config: Dict, args) -> tuple:
         "--target-image-path", str(task_config["target_image_path"]),
         "--output-dir", str(output_base),
         # Agent server paths
-        "--generator-script", "agents/generator_mcp.py",
-        "--verifier-script", "agents/verifier_mcp.py",
+        "--generator-script", args.generator_script,
+        "--verifier-script", args.verifier_script,
         # Blender execution parameters (for generator)
         "--blender-server-path", args.blender_server_path,
         "--blender-command", args.blender_command,
@@ -227,6 +227,8 @@ def main():
     parser.add_argument("--save-blender-file", action="store_true", help="Save blender file")
     
     # Tool server paths
+    parser.add_argument("--generator-script", default="agents/generator_mcp.py", help="Generator MCP script path")
+    parser.add_argument("--verifier-script", default="agents/verifier_mcp.py", help="Verifier MCP script path")
     parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to image processing MCP server script")
     parser.add_argument("--scene-server-path", default="servers/verifier/scene.py", help="Path to scene investigation MCP server script")
     
@@ -257,6 +259,9 @@ def main():
     
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # test first two tasks
+    tasks = tasks[:2]
     
     # Save task list for reference
     with open(os.path.join(args.output_dir, "tasks.json"), "w") as f:
