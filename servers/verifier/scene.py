@@ -116,7 +116,7 @@ class Investigator3D:
     def _render(self):
         bpy.context.scene.camera = self.cam
         bpy.context.scene.render.engine = 'CYCLES'
-        bpy.context.scene.render.filepath = str(self.base / f"{self.count:03d}.png")
+        bpy.context.scene.render.filepath = str(self.base / f"{self.count+1}.png")
         bpy.ops.render.render(write_still=True)
         out = bpy.context.scene.render.filepath
         self.count += 1

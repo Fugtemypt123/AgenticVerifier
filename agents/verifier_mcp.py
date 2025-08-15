@@ -103,6 +103,7 @@ class VerifierAgent:
         self.api_key = api_key
         self.client = OpenAI(api_key=self.api_key)
         self.thought_save = thought_save
+        os.makedirs(self.thought_save, exist_ok=True)
         self.max_rounds = max_rounds
         self.target_image_path = None
         self.current_image_path = None
@@ -198,6 +199,10 @@ class VerifierAgent:
     async def verify_scene(self, code: str, render_path: str, round_num: int) -> Dict[str, Any]:
         await self._ensure_tools_connected()
         
+        # define current round
+        current_round = 0
+        self.current_round = round_num
+        
         # build memory
         verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current state:\nCode: {code}"}]}
         if os.path.isdir(render_path):
@@ -257,12 +262,12 @@ class VerifierAgent:
                     else:
                         result = {"status": "continue", "output": message.content}
                     break
-            self.current_round += 1
-            self.save_thought_process(round_num)
+            current_round += 1
+            self.save_thought_process()
             return result
         except Exception as e:
             logging.error(f"Verification failed: {e}")
-            return {"status": "error", "error": str(e), "round": self.current_round}
+            return {"status": "error", "error": str(e), "round": current_round}
         
     def _get_tools(self) -> List[Dict]:
         if self.mode == "blendergym" or self.mode == "autopresent":
@@ -325,9 +330,9 @@ class VerifierAgent:
         except Exception as e:
             return {'text': f"Error executing tool: {str(e)}", 'image': None}
         
-    def save_thought_process(self, round_num: int):
+    def save_thought_process(self):
         try:
-            with open(self.thought_save + f"/{round_num}.json", "w") as f:
+            with open(self.thought_save + f"/{self.current_round+1}.json", "w") as f:
                 json.dump(self.memory, f, indent=4, ensure_ascii=False)
         except Exception as e:
             logging.error(f"Failed to save thought process: {e}")

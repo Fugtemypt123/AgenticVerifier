@@ -9,8 +9,12 @@ import json
 import time
 import argparse
 import subprocess
+import asyncio
+import signal
 from pathlib import Path
 from typing import List, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 api_key = os.getenv("OPENAI_API_KEY")
 
@@ -78,7 +82,7 @@ def load_blendergym_dataset(base_path: str, task_name: str, task_id: str) -> Lis
     
     return tasks
 
-def run_blendergym_task(task_config: Dict, args) -> bool:
+def run_blendergym_task(task_config: Dict, args) -> tuple:
     """
     Run a single BlenderGym task using main.py
     
@@ -87,17 +91,15 @@ def run_blendergym_task(task_config: Dict, args) -> bool:
         args: Command line arguments
         
     Returns:
-        True if successful, False otherwise
+        Tuple of (task_name, success: bool, error_message: str)
     """
+    task_name = f"{task_config['task_name']}/{task_config['task_dir'].name}"
     print(f"\n{'='*60}")
-    print(f"Running task: {task_config['task_name']}/{task_config['task_dir'].name}")
+    print(f"Running task: {task_name}")
     print(f"{'='*60}")
     
     # Prepare output directories
     output_base = Path(args.output_dir) / task_config['task_dir'].name
-    # render_save = output_base / "renders"
-    # generator_thought_save = output_base / "generator_thought.json"
-    # verifier_thought_save = output_base / "verifier_thought.json"
     
     # Create directories
     output_base.mkdir(parents=True, exist_ok=True)
@@ -113,29 +115,95 @@ def run_blendergym_task(task_config: Dict, args) -> bool:
         "--init-code-path", str(task_config["init_code_path"]),
         "--init-image-path", str(task_config["init_image_path"]),
         "--target-image-path", str(task_config["target_image_path"]),
-        "--blender-file", str(task_config["blender_file"]),
+        "--output-dir", str(output_base),
+        # Agent server paths
+        "--generator-script", "agents/generator_mcp.py",
+        "--verifier-script", "agents/verifier_mcp.py",
+        # Blender execution parameters (for generator)
         "--blender-server-path", args.blender_server_path,
         "--blender-command", args.blender_command,
+        "--blender-file", str(task_config["blender_file"]),
         "--blender-script", args.blender_script,
+        # Tool server paths (for verifier)
         "--image-server-path", args.image_server_path,
         "--scene-server-path", args.scene_server_path,
-        "--output-dir", str(output_base),
     ]
     
-    if args.blender_file_save:
+    if args.save_blender_file:
         cmd.append("--save-blender-file")
     
     print(f"Command: {' '.join(cmd)}")
     
     try:
         # Run the command
-        result = subprocess.run(cmd, check=True, capture_output=False)
-        print(f"Task completed successfully: {task_config['task_name']}/{task_config['task_dir'].name}")
-        return True
+        result = subprocess.run(cmd, check=True, capture_output=False, timeout=3600)  # 1 hour timeout
+        print(f"Task completed successfully: {task_name}")
+        return (task_name, True, "")
     except subprocess.CalledProcessError as e:
-        print(f"Task failed: {task_config['task_name']}/{task_config['task_dir'].name}")
-        print(f"Error: {e}")
-        return False
+        error_msg = f"Task failed: {task_name}, Error: {e}"
+        print(error_msg)
+        return (task_name, False, str(e))
+    except subprocess.TimeoutExpired:
+        error_msg = f"Task timed out: {task_name}"
+        print(error_msg)
+        return (task_name, False, "Timeout")
+    except Exception as e:
+        error_msg = f"Task failed with exception: {task_name}, Error: {e}"
+        print(error_msg)
+        return (task_name, False, str(e))
+
+def run_tasks_parallel(tasks: List[Dict], args, max_workers: int = 10) -> tuple:
+    """
+    Run tasks in parallel using ThreadPoolExecutor
+    
+    Args:
+        tasks: List of task configurations
+        args: Command line arguments
+        max_workers: Maximum number of parallel workers
+        
+    Returns:
+        Tuple of (successful_tasks: int, failed_tasks: int, failed_task_details: List)
+    """
+    successful_tasks = 0
+    failed_tasks = 0
+    failed_task_details = []
+    
+    print(f"\nStarting parallel execution with max {max_workers} workers...")
+    print(f"Total tasks: {len(tasks)}")
+    
+    # Use ThreadPoolExecutor for parallel execution
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(run_blendergym_task, task_config, args): task_config 
+            for task_config in tasks
+        }
+        
+        # Process completed tasks
+        for future in as_completed(future_to_task):
+            task_config = future_to_task[future]
+            try:
+                task_name, success, error_msg = future.result()
+                if success:
+                    successful_tasks += 1
+                    print(f"✅ {task_name} completed successfully")
+                else:
+                    failed_tasks += 1
+                    failed_task_details.append({
+                        "task_name": task_name,
+                        "error": error_msg
+                    })
+                    print(f"❌ {task_name} failed: {error_msg}")
+            except Exception as e:
+                failed_tasks += 1
+                task_name = f"{task_config['task_name']}/{task_config['task_dir'].name}"
+                failed_task_details.append({
+                    "task_name": task_name,
+                    "error": str(e)
+                })
+                print(f"❌ {task_name} failed with exception: {e}")
+    
+    return successful_tasks, failed_tasks, failed_task_details
 
 def main():
     parser = argparse.ArgumentParser(description="BlenderGym Runner for AgenticVerifier")
@@ -156,11 +224,15 @@ def main():
     parser.add_argument("--blender-server-path", default="servers/generator/blender.py", help="Path to Blender MCP server script")
     parser.add_argument("--blender-command", default="utils/blender/infinigen/blender/blender", help="Blender command path")
     parser.add_argument("--blender-script", default="data/blendergym/pipeline_render_script.py", help="Blender execution script")
-    parser.add_argument("--save-blender-file", action="store_true", help="Blender save path")
+    parser.add_argument("--save-blender-file", action="store_true", help="Save blender file")
     
     # Tool server paths
     parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to image processing MCP server script")
     parser.add_argument("--scene-server-path", default="servers/verifier/scene.py", help="Path to scene investigation MCP server script")
+    
+    # Parallel execution parameters
+    parser.add_argument("--max-workers", type=int, default=10, help="Maximum number of parallel workers")
+    parser.add_argument("--sequential", action="store_true", help="Run tasks sequentially instead of in parallel")
     
     args = parser.parse_args()
     
@@ -191,18 +263,35 @@ def main():
         json.dump(tasks, f, indent=2)
     
     # Run tasks
-    successful_tasks = 0
-    failed_tasks = 0
+    start_time = time.time()
     
-    for i, task_config in enumerate(tasks, 1):
-        print(f"\nTask {i}/{len(tasks)}")
+    if args.sequential:
+        # Sequential execution
+        print("\nRunning tasks sequentially...")
+        successful_tasks = 0
+        failed_tasks = 0
+        failed_task_details = []
         
-        success = run_blendergym_task(task_config, args)
-        
-        if success:
-            successful_tasks += 1
-        else:
-            failed_tasks += 1
+        for i, task_config in enumerate(tasks, 1):
+            print(f"\nTask {i}/{len(tasks)}")
+            task_name, success, error_msg = run_blendergym_task(task_config, args)
+            
+            if success:
+                successful_tasks += 1
+            else:
+                failed_tasks += 1
+                failed_task_details.append({
+                    "task_name": task_name,
+                    "error": error_msg
+                })
+    else:
+        # Parallel execution
+        successful_tasks, failed_tasks, failed_task_details = run_tasks_parallel(
+            tasks, args, max_workers=args.max_workers
+        )
+    
+    end_time = time.time()
+    execution_time = end_time - start_time
     
     # Summary
     print(f"\n{'='*60}")
@@ -211,11 +300,28 @@ def main():
     print(f"Total tasks: {len(tasks)}")
     print(f"Successful: {successful_tasks}")
     print(f"Failed: {failed_tasks}")
+    print(f"Execution time: {execution_time:.2f} seconds")
     print(f"Output directory: {args.output_dir}")
+    
+    # Save detailed results
+    results = {
+        "total_tasks": len(tasks),
+        "successful_tasks": successful_tasks,
+        "failed_tasks": failed_tasks,
+        "execution_time_seconds": execution_time,
+        "failed_task_details": failed_task_details,
+        "execution_mode": "sequential" if args.sequential else f"parallel_{args.max_workers}_workers"
+    }
+    
+    with open(os.path.join(args.output_dir, "execution_results.json"), "w") as f:
+        json.dump(results, f, indent=2)
     
     if successful_tasks > 0:
         print(f"\nResults saved to: {args.output_dir}")
         print("Check individual task directories for renders and thought processes.")
+    
+    if failed_tasks > 0:
+        print(f"\nFailed tasks details saved to: {os.path.join(args.output_dir, 'execution_results.json')}")
 
 if __name__ == "__main__":
     main()

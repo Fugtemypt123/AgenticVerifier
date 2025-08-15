@@ -106,9 +106,9 @@ class ImageDifferentiationTool:
         b64s = [self.pil_to_base64(im) for im in [img1, img2, img1_high, img2_high]]
 
         messages = [
-            {"role": "system", "content": "You are an expert in image comparison."},
+            {"role": "system", "content": "You are an expert in image comparison. You will receive two original images and a difference-highlighted version. Describe the visual differences in natural language in detail. If there is almost no difference, just say 'No difference'."},
             {"role": "user", "content": [
-                {"type": "text", "text": "Compare the two original images and describe the highlighted red difference."},
+                {"type": "text", "text": "Here are the two original images and their highlighted (red) visual difference parts. Please focus on the highlighted parts and describe the visual difference in these parts. If there is almost no difference, just say 'No difference'."},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[0]}"}},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[1]}"}},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[2]}"}},

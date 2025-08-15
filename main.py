@@ -1,4 +1,4 @@
- #!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Main entry for dual-agent interactive framework (generator/verifier).
 Supports 3D (Blender) and 2D (PPTX) modes.
@@ -91,7 +91,12 @@ class GeneratorAgentClient:
 
     async def cleanup(self):
         """Clean up resources."""
-        await self.exit_stack.aclose()
+        try:
+            await self.exit_stack.aclose()
+        except Exception as e:
+            # Ignore cleanup errors as they don't affect the main functionality
+            print(f"Warning: Generator cleanup error (ignored): {e}")
+            pass
 
 
 class VerifierAgentClient:
@@ -161,7 +166,12 @@ class VerifierAgentClient:
 
     async def cleanup(self):
         """Clean up resources."""
-        await self.exit_stack.aclose()
+        try:
+            await self.exit_stack.aclose()
+        except Exception as e:
+            # Ignore cleanup errors as they don't affect the main functionality
+            print(f"Warning: Verifier cleanup error (ignored): {e}")
+            pass
 
 # ========== Main Dual-Agent Loop ==========
 
@@ -345,13 +355,23 @@ async def main():
         print(f"Error in main loop: {e}")
         import traceback
         traceback.print_exc()
-    finally:
-        # Cleanup
-        print("Cleaning up...")
-        await generator.cleanup()
-        await verifier.cleanup()
+    # finally:
+    #     # Cleanup
+    #     print("Cleaning up...")
+    #     try:
+    #         await generator.cleanup()
+    #     except Exception as e:
+    #         print(f"Warning: Generator cleanup failed: {e}")
+        
+    #     try:
+    #         await verifier.cleanup()
+    #     except Exception as e:
+    #         print(f"Warning: Verifier cleanup failed: {e}")
     
     print("\n=== Dual-agent interaction finished ===")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Unexpected error: {e}")
