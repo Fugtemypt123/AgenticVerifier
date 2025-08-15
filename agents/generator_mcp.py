@@ -18,43 +18,90 @@ class ExternalToolClient:
     
     def __init__(self):
         self.sessions = {}  # server_type -> session
-        self.exit_stack = AsyncExitStack()
+        self.mcp_sessions = {}  # server_type -> McpSession
         self.connection_timeout = 30  # 30 seconds timeout
     
     async def connect_server(self, server_type: str, server_path: str):
-        """Connect to the specified MCP server with timeout."""
+        """Connect to the specified MCP server with timeout in a background task."""
         if server_type in self.sessions:
             return  # Already connected
-        try:
-            server_params = StdioServerParameters(
-                command="python",
-                args=[server_path],
-            )
-            stdio_transport = await asyncio.wait_for(
-                self.exit_stack.enter_async_context(stdio_client(server_params)),
-                timeout=self.connection_timeout
-            )
-            stdio, write = stdio_transport
-            session = await asyncio.wait_for(
-                self.exit_stack.enter_async_context(ClientSession(stdio, write)),
-                timeout=self.connection_timeout
-            )
-            await asyncio.wait_for(
-                session.initialize(),
-                timeout=self.connection_timeout
-            )
-            # List available tools
-            response = await asyncio.wait_for(
-                session.list_tools(),
-                timeout=10
-            )
-            tools = response.tools
-            print(f"Connected to {server_type.capitalize()} server with tools: {[tool.name for tool in tools]}")
-            self.sessions[server_type] = session
-        except asyncio.TimeoutError:
-            raise RuntimeError(f"Failed to connect to {server_type} server: Connection timeout after {self.connection_timeout}s")
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to {server_type} server: {str(e)}")
+            
+        ready_event = asyncio.Event()
+        
+        async def mcp_session_runner() -> None:
+            try:
+                server_params = StdioServerParameters(
+                    command="python",
+                    args=[server_path],
+                )
+                
+                exit_stack = AsyncExitStack()
+                stdio_transport = await asyncio.wait_for(
+                    exit_stack.enter_async_context(stdio_client(server_params)),
+                    timeout=self.connection_timeout
+                )
+                stdio, write = stdio_transport
+                session = await asyncio.wait_for(
+                    exit_stack.enter_async_context(ClientSession(stdio, write)),
+                    timeout=self.connection_timeout
+                )
+                await asyncio.wait_for(
+                    session.initialize(),
+                    timeout=self.connection_timeout
+                )
+                
+            except Exception as e:
+                print(f"Error during MCP connection setup: {e}")
+                raise ConnectionError(f"Failed to connect to {server_type} server: {e}") from e
+            finally:
+                print(f"Sending {server_type} MCP connection ready event")
+                ready_event.set()
+
+            try:
+                stop_event = asyncio.Event()
+                
+                # Store the session
+                current_task = asyncio.current_task()
+                assert current_task is not None, "Current task should not be None"
+                
+                self.mcp_sessions[server_type] = McpSession(
+                    name=server_type,
+                    client=session,
+                    task=current_task,
+                    stop_event=stop_event,
+                )
+                
+                # List available tools
+                response = await asyncio.wait_for(
+                    session.list_tools(),
+                    timeout=10
+                )
+                tools = response.tools
+                print(f"Connected to {server_type.capitalize()} server with tools: {[tool.name for tool in tools]}")
+                self.sessions[server_type] = session
+                
+                # Wait for the stop event
+                await stop_event.wait()
+                
+            except asyncio.CancelledError:
+                print(f"{server_type} MCP session cancelled")
+                raise
+            except Exception as e:
+                print(f"Error during {server_type} MCP session: {e}")
+                raise
+            finally:
+                print(f"Closing {server_type} MCP session")
+                try:
+                    await exit_stack.aclose()
+                except Exception as e:
+                    print(f"Error during {server_type} exit stack close: {e}")
+                print(f"{server_type} MCP session closed")
+
+        # Run the session runner in a separate task
+        asyncio.create_task(mcp_session_runner())
+        print(f"Waiting for {server_type} MCP connection to be ready")
+        await ready_event.wait()
+        print(f"{server_type} MCP connection is ready")
     
     async def initialize_executor(self, server_type: str, **kwargs) -> Dict:
         """Initialize the executor using external server with timeout."""
@@ -99,13 +146,30 @@ class ExternalToolClient:
             raise RuntimeError(f"{server_type.capitalize()} script execution failed: {str(e)}")
     
     async def cleanup(self):
-        """Clean up connections with timeout."""
-        try:
-            await asyncio.wait_for(self.exit_stack.aclose(), timeout=10)
-        except asyncio.TimeoutError:
-            logging.warning("Cleanup timeout, forcing close")
-        except Exception as e:
-            logging.warning(f"Cleanup error: {e}")
+        """Clean up connections by closing all MCP sessions."""
+        for server_type, mcp_session in self.mcp_sessions.items():
+            try:
+                await mcp_session.close()
+            except Exception as e:
+                logging.warning(f"Cleanup error for {server_type}: {e}")
+
+
+class McpSession:
+    """Manages a single MCP session with its own task and cleanup."""
+    
+    def __init__(self, name: str, client: ClientSession, task: asyncio.Task, stop_event: asyncio.Event):
+        self.name = name
+        self.client = client
+        self.task = task
+        self.stop_event = stop_event
+
+    async def close(self) -> None:
+        """Close the MCP session by setting stop event and waiting for task completion."""
+        print(f"Sending stop event to {self.name}")
+        self.stop_event.set()
+        print(f"Waiting for task {self.name} to finish")
+        await self.task
+        print(f"Task {self.name} finished")
 
 class GeneratorAgent:
     """
