@@ -196,7 +196,7 @@ def run_tasks_parallel(tasks: List[Dict], args, max_workers: int = 10) -> tuple:
                     print(f"❌ {task_name} failed: {error_msg}")
             except Exception as e:
                 failed_tasks += 1
-                task_name = f"{task_config['task_name']}/{task_config['task_dir'].name}"
+                task_name = task_config['task_dir'].split('/')[-1]
                 failed_task_details.append({
                     "task_name": task_name,
                     "error": str(e)
