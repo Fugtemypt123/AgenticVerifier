@@ -17,10 +17,6 @@ prompts_dict = {
         }
     },
     'autopresent': {
-        'hints': {
-            'generator': autopresent_generator_hints,
-            'verifier': autopresent_verifier_hints
-        },
         'system': {
             'generator': autopresent_generator_system,
             'verifier': autopresent_verifier_system
@@ -29,6 +25,7 @@ prompts_dict = {
             'generator': autopresent_generator_format,
             'verifier': autopresent_verifier_format
         },
-        'api_library': autopresent_api_library
+        'api_library': autopresent_api_library,
+        'hints': autopresent_hints
     }
 }

@@ -184,9 +184,16 @@ class VerifierAgent:
         else:
             raise NotImplementedError("Mode not implemented")
         
-        self.memory = self._build_system_prompt(
-            mode, task_name, target_image_path, target_descirption
-        )
+        if mode == "blendergym":
+            self.memory = self._build_blendergym_system_prompt(
+                mode, task_name, target_image_path
+            )
+        elif mode == "autopresent":
+            self.memory = self._build_autopresent_system_prompt(
+                mode, target_descirption
+            )
+        else:
+            raise NotImplementedError("Mode not implemented")
         
     def _get_image_base64(self, image_path: str) -> str:
         image = Image.open(image_path)
@@ -195,11 +202,10 @@ class VerifierAgent:
         img_byte_array.seek(0)
         return base64.b64encode(img_byte_array.read()).decode('utf-8')
     
-    def _build_system_prompt(self, 
+    def _build_blendergym_system_prompt(self, 
                              mode: str,
                              task_name: str,
-                             target_image_path: str,
-                             target_descirption: str) -> List[Dict]:
+                             target_image_path: str) -> List[Dict]:
         full_prompt = []
         # System prompt
         full_prompt.append({
@@ -209,29 +215,47 @@ class VerifierAgent:
         user_content = []
         
         # Add target image/description
-        if mode == 'blendergym':
-            target_image_path_1 = os.path.join(target_image_path, 'render1.png')
-            if os.path.exists(target_image_path_1):
-                self.target_image_path = os.path.abspath(target_image_path_1)
-                user_content.extend([
-                    {"type": "text", "text": "Target Image (View 1):"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}}
-                ])
-            target_image_path_2 = os.path.join(target_image_path, 'render2.png')
-            if os.path.exists(target_image_path_2):
-                user_content.extend([
-                    {"type": "text", "text": "Target Image (View 2):"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}}
-                ])
-        elif mode == 'autopresent':
-            user_content.append({
-                "type": "text",
-                "text": f"Task Instruction:\n{target_descirption}"
-            })
+        target_image_path_1 = os.path.join(target_image_path, 'render1.png')
+        if os.path.exists(target_image_path_1):
+            self.target_image_path = os.path.abspath(target_image_path_1)
+            user_content.extend([
+                {"type": "text", "text": "Target Image (View 1):"},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}}
+            ])
+        target_image_path_2 = os.path.join(target_image_path, 'render2.png')
+        if os.path.exists(target_image_path_2):
+            user_content.extend([
+                {"type": "text", "text": "Target Image (View 2):"},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}}
+            ])
             
         # Add hints
         if prompts_dict[mode]['hints']['verifier'][task_name] is not None:
             user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']['verifier'][task_name]}"})
+            
+        full_prompt.append({"role": "user", "content": user_content})
+        return full_prompt
+    
+    def _build_autopresent_system_prompt(self, 
+                             mode: str,
+                             target_descirption: str) -> List[Dict]:
+        full_prompt = []
+        # System prompt
+        full_prompt.append({
+            "role": "system",
+            "content": prompts_dict[mode]['system']['verifier']
+        })
+        user_content = []
+        
+        # Add target description
+        user_content.append({
+            "type": "text",
+            "text": f"Task Instruction:\n{target_descirption}"
+        })
+        
+        # Add hints
+        if prompts_dict[mode]['hints'] is not None:
+            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']}"})
             
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
@@ -268,28 +292,39 @@ class VerifierAgent:
         self.current_round = round_num
         
         # build memory
-        verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current state:\nCode: {code}"}]}
-        if os.path.isdir(render_path):
-            view1_path = os.path.join(render_path, 'render1.png')
-            view2_path = os.path.join(render_path, 'render2.png')
+        if self.mode == "blendergym":
+            verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current state:\nCode: {code}"}]}
+            if os.path.isdir(render_path):
+                view1_path = os.path.join(render_path, 'render1.png')
+                view2_path = os.path.join(render_path, 'render2.png')
+            else:
+                view1_path = render_path
+                view2_path = None
+            scene_content = []
+            if os.path.exists(view1_path):
+                self.current_image_path = os.path.abspath(view1_path)
+                scene_content.extend([
+                    {"type": "text", "text": f"Current scene (View 1):"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view1_path)}"}}
+                ])
+            if os.path.exists(view2_path):
+                scene_content.extend([
+                    {"type": "text", "text": f"Current scene (View 2):"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view2_path)}"}}
+                ])
+            verify_message["content"].extend(scene_content)
+            verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
+            self.memory.append(verify_message)
+        elif self.mode == "autopresent":
+            verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current code and generated slide:\nCode: {code}"}]}
+            # add slide screenshot
+            if os.path.exists(render_path):
+                verify_message["content"].append({"type": "text", "text": f"Generated slide screenshot:"})
+                verify_message["content"].append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(render_path)}"}})
+            verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
+            self.memory.append(verify_message)
         else:
-            view1_path = render_path
-            view2_path = None
-        scene_content = []
-        if os.path.exists(view1_path):
-            self.current_image_path = os.path.abspath(view1_path)
-            scene_content.extend([
-                {"type": "text", "text": f"Current scene (View 1):"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view1_path)}"}}
-            ])
-        if os.path.exists(view2_path):
-            scene_content.extend([
-                {"type": "text", "text": f"Current scene (View 2):"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view2_path)}"}}
-            ])
-        verify_message["content"].extend(scene_content)
-        verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
-        self.memory.append(verify_message)
+            raise NotImplementedError("Mode not implemented")
         
         # start verification
         try:

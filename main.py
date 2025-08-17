@@ -384,9 +384,7 @@ async def main():
         elif args.mode == "autopresent":
             generator_params.update({
                 "slides_server_path": args.slides_server_path,
-                "code_save": args.output_dir + "/scripts",
-                "image_save": args.output_dir + "/images",
-                "slide_save": args.output_dir + "/slides",
+                "output_dir": args.output_dir,
             })
         else:
             raise NotImplementedError("Mode not implemented")

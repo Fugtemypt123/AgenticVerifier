@@ -14,12 +14,12 @@ mcp = FastMCP("slides-executor")
 _executor = None
 
 class SlidesExecutor:
-    def __init__(self, code_save: str):
-        self.code_save = Path(code_save)
-        self.code_save.mkdir(parents=True, exist_ok=True)
+    def __init__(self, output_dir: str):
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _execute_slide_code(self, code_path: str) -> str:
-        generate_dir = "/home/shaofengyin/AutoPresent/generate"
+        generate_dir = "utils/slides"
         env = os.environ.copy()
         env['PYTHONPATH'] = f"{generate_dir}:{env.get('PYTHONPATH', '')}"
         try:
@@ -39,7 +39,7 @@ class SlidesExecutor:
 
     def execute(self, code: str, round: int) -> dict:
         try:
-            round_dir = self.code_save / f"{round}"
+            round_dir = self.output_dir / f"{round}"
             round_dir.mkdir(exist_ok=True)
             code_path = round_dir / "refine.py"
             slide_path = code_path.with_suffix(".pptx")
@@ -64,13 +64,13 @@ class SlidesExecutor:
             return {"status": "failure", "output": str(e)}
 
 @mcp.tool()
-def initialize_executor(code_save: str) -> dict:
+def initialize_executor(output_dir: str) -> dict:
     """
     初始化 Slides 执行器，设置所有必要的参数。
     """
     global _executor
     try:
-        _executor = SlidesExecutor(code_save)
+        _executor = SlidesExecutor(output_dir)
         return {"status": "success", "message": "Slides executor initialized successfully"}
     except Exception as e:
         return {"status": "error", "error": str(e)}

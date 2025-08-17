@@ -1,5 +1,4 @@
-## Helper functions
-
+You may use our custom API libraries in your code to simplify implementation. API libraries:
 add_title(slide, text, font_size, font_color, background_color)
 """Add a title text to the slide with custom font size and font color (RGB tuple).
 Args:
@@ -74,34 +73,52 @@ Args:
 Rets:
     str, the generated code
 """
+You can also import python-pptx libraries and any other libraries that you know.
 
-google_search_screenshot(question, save_path)
-"""Search a question on Google, and take a screenshot of the search result.
-Save the screenshot to save_path, and return the path.
-Args:
-    question: str, The question to search on Google.
-    save_path: str, The path to save the screenshot.
-Returns:
-    The path of the saved screenshot.
-"""
+## Examples
 
-search_image(query, save_path)
-"""Search for an image on Google and download the result to save_path.
-Args:
-    query: str, The query to search for.
-    save_path: str, The path to save the downloaded image.
-Rets:
-    the save_path.
-"""
+### Example 1
+Instruction: Create slide with the title 'NLP Can Answer Questions' in large, bolded font in the top center of the page. Below it, use the provided screenshot of the google search result of the question 'Where was the first movie theater in the U.S?' in the middle of the page.
+Provided Images:
+image_0: "A screenshot of the google search result of 'NLP Can Answer Questions'"
+Program:
+```python
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from library import add_text
 
-generate_image(query, save_path)
-"""Generate an image using diffusion model based on a text query, and save the image to the path.
-Args:
-    query: str, The text query to generate the image.
-    save_path: str, The path to save the generated image.
-Rets:
-    The path of the saved image
-"""
+presentation = Presentation()
+presentation.slide_width = Inches(16)
+presentation.slide_height = Inches(9)
 
-You can import all functions above by importing from the library. 
-For example, `from library import *` or `from library import {function_name}`.
+slide_layout = presentation.slide_layouts[0] # choose a layout template
+slide = presentation.slides.add_slide(slide_layout)
+add_text(slide, "NLP Can Answer Questions", coords=(1, 0.5, 8, 1), font_size=36)
+img_path = "image_0.jpg"
+slide.shapes.add_picture(img_path, Inches(2.5), Inches(2), Inches(6), Inches(4))
+presentation.save("output.pptx")
+```
+
+### Example 2
+Instruction: Create a slide titled 'Interior Design' in bold, dark-green color in the center of the page. Use the provided color background image, ensure enough contrast between the colors of text and background, add a half-transparent layer to hide the colors if necessary.
+Provided Images:
+image_0: "An colorful, artistic background image"
+Program:
+```python
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from library import add_text
+
+presentation = Presentation()
+presentation.slide_width = Inches(16)
+presentation.slide_height = Inches(9)
+
+slide_layout = presentation.slide_layouts[5] # choose a layout template
+slide = presentation.slides.add_slide(slide_layout)
+
+image_path = "image_0.jpg"
+slide.shapes.add_picture(image_path, Inches(0), Inches(0), Inches(16), Inches(9))
+add_text(slide, 'Interior Design', coords=(0.0, 2.4, 13.3, 1.3), font_size=80, bold=True, color=(0, 0, 0), background_color=(255, 255, 255), auto_size=True)
+
+presentation.save("output.pptx")
+```

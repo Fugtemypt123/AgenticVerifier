@@ -187,7 +187,8 @@ class GeneratorAgent:
                  target_image_path: Optional[str] = None,
                  target_description: Optional[str] = None,
                  blender_server_path: Optional[str] = None,
-                 slides_server_path: Optional[str] = None):
+                 slides_server_path: Optional[str] = None,
+                 output_dir: Optional[str] = None):
         """
         Initialize the Generator Agent.
         """
@@ -200,7 +201,7 @@ class GeneratorAgent:
         self.current_round = 0
         self.tool_client = ExternalToolClient()
         self._server_connected = False
-        
+        self.output_dir = output_dir
         # Decide which server to use
         if mode == "blendergym":
             self.server_type = "blender"
@@ -212,10 +213,14 @@ class GeneratorAgent:
             raise NotImplementedError("Mode not implemented")
         
         # Initialize memory if initial parameters are provided
-        self.memory = self._build_system_prompt(
-            mode, task_name, init_code_path, init_image_path, 
-            target_image_path, target_description
-        )
+        if mode == "blendergym":
+            self.memory = self._build_blendergym_system_prompt(
+                mode, task_name, init_code_path, init_image_path, target_image_path
+            )
+        elif mode == "autopresent":
+            self.memory = self._build_autopresent_system_prompt(
+                mode, init_code_path, init_image_path, target_description
+            )
     
     async def _ensure_server_connected(self):
         if not self._server_connected and self.server_type and self.server_path:
@@ -227,15 +232,14 @@ class GeneratorAgent:
         result = await self.tool_client.initialize_executor(self.server_type, **kwargs)
         return result
     
-    def _build_system_prompt(self, 
+    def _build_blendergym_system_prompt(self, 
                              mode: str, 
                              task_name: str, 
                              init_code_path: str = None, 
                              init_image_path: str = None, 
-                             target_image_path: str = None, 
-                             target_description: str = None) -> List[Dict]:
+                             target_image_path: str = None) -> List[Dict]:
         """
-        Build the system prompt for the generator.
+        Build the system prompt for the generator for blendergym mode.
         """
         full_prompt = []
         # Add system prompt
@@ -252,26 +256,19 @@ class GeneratorAgent:
         }]
         
         # Add code analysis
-        if mode == "blendergym":
-            code_analysis = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a Blender Python code analysis expert."},
-                    {"role": "user", "content": f"Please analyze the following Blender Python code line by line, \
-                    explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
-                ]
-            )
-            code_analysis = code_analysis.choices[0].message.content
-            user_content.append({
-                "type": "text",
-                "text": f"Code Analysis:\n{code_analysis}"
-            })
-        elif mode == "autopresent":
-            code_analysis = prompts_dict[mode]['api_library']
-            user_content.append({
-                "type": "text",
-                "text": f"{code_analysis}"
-            })
+        code_analysis = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are a Blender Python code analysis expert."},
+                {"role": "user", "content": f"Please analyze the following Blender Python code line by line, \
+                explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
+            ]
+        )
+        code_analysis = code_analysis.choices[0].message.content
+        user_content.append({
+            "type": "text",
+            "text": f"Code Analysis:\n{code_analysis}"
+        })
         
         # Add initial images
         init_image_path_1 = os.path.join(init_image_path, 'render1.png')
@@ -299,36 +296,29 @@ class GeneratorAgent:
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_2)}"}
             })
         
-        if mode == "blendergym":
-            # Add target images (for mode `blendergym`)
-            target_image_path_1 = os.path.join(target_image_path, 'render1.png')
-            if os.path.exists(target_image_path_1):
-                user_content.append({
-                    "type": "text",
-                    "text": "Target Image (View 1):"
-                })
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
-                })
-            else:
-                logging.error(f"Target image {target_image_path_1} does not exist!")
-            
-            target_image_path_2 = os.path.join(target_image_path, 'render2.png')
-            if os.path.exists(target_image_path_2):
-                user_content.append({
-                    "type": "text",
-                    "text": "Target Image (View 2):"
-                })
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}
-                })
-        elif mode == "autopresent":
-            # Add target description (for mode `autopresent`)
+        # Add target images (for mode `blendergym`)
+        target_image_path_1 = os.path.join(target_image_path, 'render1.png')
+        if os.path.exists(target_image_path_1):
             user_content.append({
                 "type": "text",
-                "text": f"Task Instruction:\n{target_description}"
+                "text": "Target Image (View 1):"
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
+            })
+        else:
+            logging.error(f"Target image {target_image_path_1} does not exist!")
+        
+        target_image_path_2 = os.path.join(target_image_path, 'render2.png')
+        if os.path.exists(target_image_path_2):
+            user_content.append({
+                "type": "text",
+                "text": "Target Image (View 2):"
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}
             })
         
         # Add hints 
@@ -337,6 +327,86 @@ class GeneratorAgent:
                 "type": "text",
                 "text": f"Hints:\n{prompts_dict[mode]['hints']['generator'][task_name]}"
             })
+        
+        # Add output format
+        user_content.append({
+            "type": "text",
+            "text": prompts_dict[mode]['format']['generator']
+        })
+        
+        # Add all user content
+        full_prompt.append({
+            "role": "user",
+            "content": user_content
+        })
+        return full_prompt
+    
+    def _build_autopresent_system_prompt(self, 
+                             mode: str, 
+                             init_code_path: str = None,
+                             init_image_path: str = None, 
+                             target_description: str = None) -> List[Dict]:
+        full_prompt = []
+        # Add system prompt
+        full_prompt.append({
+            "role": "system",
+            "content": prompts_dict[mode]['system']['generator'] + '\n\n' + prompts_dict[mode]['api_library']
+        })
+        
+        # Add user input
+        user_content = []
+        user_content.append({
+            "type": "text",
+            "text": f"Now, here is the task package, which includes the initial code, a screenshot of the initial slides, the provided images with filenames used in the slides, and my instruction:"
+        })
+        
+        # Add initial code
+        init_code = open(init_code_path, 'r').read()
+        user_content.append({
+            "type": "text",
+            "text": f"Initial Code:\n```python\n{init_code}\n```"
+        })
+        
+        # Add initial images
+        if os.path.exists(init_image_path):
+            user_content.append({
+                "type": "text",
+                "text": "Initial Slide Screenshot:"
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path)}"}
+            })
+            
+        # Add used images
+        user_content.append({
+            "type": "text",
+            "text": "Provided Images (they might already appear in the code):"
+        })
+        used_image_dir = os.path.join(os.path.dirname(init_image_path), 'media')
+        used_images = os.listdir(used_image_dir)
+        for image in used_images:
+            if image.endswith('.jpg') or image.endswith('.png') or image.endswith('.jpeg'):
+                user_content.append({
+                    "type": "text",
+                    "text": f"Path: {os.path.join(used_image_dir, image)}"
+                })
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(os.path.join(used_image_dir, image))}"}
+                })
+        
+        # Add target description
+        user_content.append({
+            "type": "text",
+            "text": f"Instrction:\n{target_description}"
+        })
+        
+        # Add hints
+        user_content.append({
+            "type": "text",
+            "text": f"Hints:\n{prompts_dict[mode]['hints']}"
+        })
         
         # Add output format
         user_content.append({
@@ -490,8 +560,7 @@ def main():
         blender_save: Optional[str] = None,
         # Slides executor parameters
         slides_server_path: str = None,
-        code_save: str = None
-        
+        output_dir: str = None,
     ) -> dict:
         """
         Initialize a new Generator Agent with optional Blender or Slides executor setup.
@@ -509,7 +578,8 @@ def main():
                 target_image_path=target_image_path,
                 target_description=target_description,
                 blender_server_path=blender_server_path,
-                slides_server_path=slides_server_path
+                slides_server_path=slides_server_path,
+                output_dir=output_dir
             )
             agent_holder['agent'] = agent
             
@@ -533,7 +603,7 @@ def main():
             # Setup Slides executor if parameters are provided
             elif mode == "autopresent":
                 try:
-                    setup_result = await agent.setup_executor(code_save=code_save)
+                    setup_result = await agent.setup_executor(output_dir=output_dir)
                     setup_results.append(("Slides", setup_result))
                 except Exception as e:
                     setup_results.append(("Slides", {"status": "error", "error": str(e)}))
