@@ -88,7 +88,7 @@ def run_autopresent_task(task_config: Dict, args) -> tuple:
     Returns:
         Tuple of (task_name, success: bool, error_message: str)
     """
-    task_name = task_config['task_dir'].split('/')[-1]
+    task_name = task_config['task_name'] + "/" + task_config['task_dir'].split('/')[-1]
     print(f"\n{'='*60}")
     print(f"Running task: {task_name}")
     print(f"{'='*60}")
