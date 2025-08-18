@@ -113,9 +113,4 @@ if __name__ == "__main__":
     parser.add_argument("--max_tokens", type=int, default=100, help="Max tokens to generate.")
 
     args = parser.parse_args()
-
-    media_dir = os.path.join(os.path.dirname(args.image_path), "media")
-    if not os.path.exists(media_dir):
-        print("[Warning] No image is involved in this example. May affect the interpretation of the image criteria.")
-
     main()

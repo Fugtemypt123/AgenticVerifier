@@ -135,10 +135,10 @@ def main():
 
     final_results = viz_scores(scores_dict)
     if args.output_path is None:
-        args.output_path = os.path.join(os.path.dirname(args.generated_pptx), "ref_eval.txt")
-        with open(args.output_path, 'w') as f:
-            for key, value in final_results.items():
-                f.write(f"{key}: {value:.1f}\n")
+        args.output_path = os.path.join(os.path.dirname(args.generated_pptx), "ref_based.txt")
+    with open(args.output_path, 'w') as f:
+        for key, value in final_results.items():
+            f.write(f"{key}: {value:.1f}\n")
 
 
 def eval_page(gen_prs, gen_page, ref_prs, ref_page) -> dict:

@@ -219,12 +219,16 @@ def main():
     parser.add_argument('test_id', type=str, help='Test ID (e.g., 20250815_150016)')
     parser.add_argument('--output_dir', type=str, default=None, 
                        help='Output directory for evaluation results (default: output/blendergym/{test_id}/)_evaluation)')
-    parser.add_argument('--missing_round_penalty_factor', type=float, default=2,
-                        help='Penalty factor to multiply scores for missing earlier rounds when later rounds exist (default: 1.2)')
+    parser.add_argument('--missing_round_penalty_max', type=float, default=2.0,
+                        help='Max penalty factor for earliest rounds.')
+    parser.add_argument('--missing_round_penalty_min', type=float, default=1.0,
+                        help='Min penalty factor for latest rounds.')
     
     args = parser.parse_args()
     test_id = args.test_id
-    penalty_factor = float(args.missing_round_penalty_factor)
+    penalty_max = float(args.missing_round_penalty_max)
+    penalty_min = float(args.missing_round_penalty_min)
+    MAX_ROUNDS = 10
     
     # Set up paths
     output_base_dir = f"output/blendergym/{test_id}"
@@ -323,8 +327,14 @@ def main():
                     next_key = str(next_round)
                     base_n = instance_scores[next_key]['avg_n_clip']
                     base_pl = instance_scores[next_key]['avg_pl']
-                    per_round_values[key]['n_clip'].append(base_n * penalty_factor)
-                    per_round_values[key]['pl'].append(base_pl * penalty_factor)
+                    # Decaying penalty: higher for earlier rounds, lower for later rounds
+                    if MAX_ROUNDS > 1:
+                        t = (round_idx - 1) / (MAX_ROUNDS - 1)
+                    else:
+                        t = 0.0
+                    penalty_factor_round = penalty_max - t * (penalty_max - penalty_min)
+                    per_round_values[key]['n_clip'].append(base_n * penalty_factor_round)
+                    per_round_values[key]['pl'].append(base_pl * penalty_factor_round)
                     per_round_values[key]['penalized_count'] += 1
                     continue
                 # Case 3: missing because process ended (no later rounds) -> ignore
