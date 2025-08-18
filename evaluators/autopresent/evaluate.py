@@ -37,7 +37,7 @@ def evaluate_single_slide(slide_dirs: str, index: int) -> int:
         ref_eval_path = os.path.join(os.path.dirname(pptx_path), "ref_based.txt")
         command = [
             "python", "evaluators/autopresent/page_eval.py",
-            "--reference_pptx", f"data/autopresent/examples/{slide_name}/slide_{index}/slide.pptx",
+            "--reference_pptx", f"data/autopresent/examples/{slide_name}/{slide_name}.pptx",
             "--generated_pptx", pptx_path,
             "--reference_page", str(index),
             "--output_path", ref_eval_path,
@@ -48,7 +48,7 @@ def evaluate_single_slide(slide_dirs: str, index: int) -> int:
 
         # ref-free evaluation
         jpg_path = pptx_path.replace(".pptx", ".jpg")
-        ref_free_eval_path = os.path.join(os.path.dirname(pptx_path), "ref_free.txt")
+        ref_free_eval_path = os.path.join(os.path.dirname(pptx_path), "ref_free.json")
         if os.path.exists(jpg_path):
             command = [
                 "python", "evaluators/autopresent/reference_free_eval.py",

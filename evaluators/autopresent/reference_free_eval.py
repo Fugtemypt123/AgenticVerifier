@@ -96,7 +96,7 @@ def main():
     
     if args.response_path is None:
         response_path = jpg_image_path.replace(".jpg", "_eval.json")
-        json.dump(results_dict, open(response_path, "w"))
+    json.dump(results_dict, open(response_path, "w"))
 
 
 
