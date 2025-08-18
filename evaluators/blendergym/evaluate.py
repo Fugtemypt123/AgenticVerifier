@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
 from transformers import CLIPProcessor, CLIPModel
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Task instance counts for different task types
 TASK_INSTANCE_COUNT_DICT = {
@@ -23,6 +24,21 @@ TASK_INSTANCE_COUNT_DICT = {
     'placement': 40,
     'lighting': 40
 }
+
+# Global CLIP model/processor to share across threads
+GLOBAL_CLIP_MODEL = None
+GLOBAL_CLIP_PROCESSOR = None
+
+
+def ensure_clip_loaded():
+    """
+    Lazily load the global CLIP model and processor once per process.
+    """
+    global GLOBAL_CLIP_MODEL, GLOBAL_CLIP_PROCESSOR
+    if GLOBAL_CLIP_MODEL is None or GLOBAL_CLIP_PROCESSOR is None:
+        GLOBAL_CLIP_MODEL = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        GLOBAL_CLIP_PROCESSOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
 
 def clip_similarity(image1, image2):
     """
@@ -38,17 +54,16 @@ def clip_similarity(image1, image2):
     if image1.size != image2.size:
         image2 = image2.resize(image1.size)
 
-    # Load the CLIP model
-    model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-    processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    # Ensure global model is initialized
+    ensure_clip_loaded()
 
     # Preprocess the images
     images = [image1, image2]
-    inputs = processor(images=images, return_tensors="pt")
+    inputs = GLOBAL_CLIP_PROCESSOR(images=images, return_tensors="pt")
 
     # Compute the features for the images
     with torch.no_grad():
-        features = model.get_image_features(**inputs)
+        features = GLOBAL_CLIP_MODEL.get_image_features(**inputs)
 
     # Compute the cosine similarity between the image features
     sim = torch.nn.functional.cosine_similarity(features[0], features[1], dim=-1)
@@ -83,6 +98,102 @@ def photometric_loss(image1: Image.Image, image2: Image.Image) -> float:
     # Compute the mean squared error
     mse = np.mean(diff)
     return mse
+
+
+def process_task_instance(output_base_dir: str, task_dir: str):
+    """
+    Process a single task instance directory and compute metrics across rounds.
+
+    Returns:
+        tuple: (task_dir, task_instance_scores, best_n_clip, best_pl)
+               where best_* can be None if no valid rounds.
+    """
+    task_instance_dir = os.path.join(output_base_dir, task_dir)
+    renders_dir = os.path.join(task_instance_dir, "renders")
+
+    if not os.path.exists(renders_dir):
+        return task_dir, {}, None, None
+
+    gt_renders_dir = f"data/blendergym/{task_dir}/renders/goal"
+    if not os.path.exists(gt_renders_dir):
+        return task_dir, {}, None, None
+
+    task_instance_scores = {}
+
+    # Get all round directories (1, 2, 3, 4, etc.)
+    round_dirs = [d for d in os.listdir(renders_dir)
+                 if os.path.isdir(os.path.join(renders_dir, d))]
+    try:
+        round_dirs.sort(key=lambda x: int(x))
+    except Exception:
+        # Fallback to lexical sort if non-numeric dirs exist
+        round_dirs.sort()
+
+    if not round_dirs:
+        return task_dir, {}, None, None
+
+    for round_dir in round_dirs:
+        round_path = os.path.join(renders_dir, round_dir)
+        task_instance_scores[round_dir] = {}
+
+        n_clip_views = []
+        pl_views = []
+
+        # render1
+        render1_path = os.path.join(round_path, "render1.png")
+        gt_render1_path = os.path.join(gt_renders_dir, "render1.png")
+        if os.path.exists(render1_path) and os.path.exists(gt_render1_path):
+            try:
+                proposal_render = Image.open(render1_path)
+                gt_render = Image.open(gt_render1_path)
+                n_clip = float(1 - clip_similarity(proposal_render, gt_render))
+                pl = float(photometric_loss(proposal_render, gt_render))
+                n_clip_views.append(n_clip)
+                pl_views.append(pl)
+                task_instance_scores[round_dir]['render1'] = {'n_clip': n_clip, 'pl': pl}
+            except Exception:
+                pass
+
+        # render2
+        render2_path = os.path.join(round_path, "render2.png")
+        gt_render2_path = os.path.join(gt_renders_dir, "render2.png")
+        if os.path.exists(render2_path) and os.path.exists(gt_render2_path):
+            try:
+                proposal_render2 = Image.open(render2_path)
+                gt_render2 = Image.open(gt_render2_path)
+                n_clip2 = float(1 - clip_similarity(proposal_render2, gt_render2))
+                pl2 = float(photometric_loss(proposal_render2, gt_render2))
+                n_clip_views.append(n_clip2)
+                pl_views.append(pl2)
+                task_instance_scores[round_dir]['render2'] = {'n_clip': n_clip2, 'pl': pl2}
+            except Exception:
+                pass
+
+        if n_clip_views:
+            avg_n_clip = sum(n_clip_views) / len(n_clip_views)
+            avg_pl = sum(pl_views) / len(pl_views)
+            task_instance_scores[round_dir]['avg_n_clip'] = avg_n_clip
+            task_instance_scores[round_dir]['avg_pl'] = avg_pl
+
+    # Determine best rounds
+    valid_rounds = {k: v for k, v in task_instance_scores.items() if 'avg_n_clip' in v and 'avg_pl' in v}
+    best_n_clip = None
+    best_pl = None
+    if valid_rounds:
+        best_n_clip_round = min(valid_rounds.keys(), key=lambda r: valid_rounds[r]['avg_n_clip'])
+        best_pl_round = min(valid_rounds.keys(), key=lambda r: valid_rounds[r]['avg_pl'])
+        best_n_clip = valid_rounds[best_n_clip_round]['avg_n_clip']
+        best_pl = valid_rounds[best_pl_round]['avg_pl']
+
+    # Save individual instance scores
+    instance_scores_path = os.path.join(task_instance_dir, 'scores.json')
+    try:
+        with open(instance_scores_path, 'w') as f:
+            json.dump(task_instance_scores, f, indent=4)
+    except Exception:
+        pass
+
+    return task_dir, task_instance_scores, best_n_clip, best_pl
 
 def extract_task_type_and_number(task_dir_name):
     """
@@ -144,165 +255,50 @@ def main():
     scores_across_tasks = {}
     intermediates = {}
     
+    # Ensure CLIP is loaded once (shared by threads)
+    ensure_clip_loaded()
+
     for task_type, task_instances in tasks_by_type.items():
         print(f"\nProcessing task type: {task_type}")
-        
+
         # Sort by task number
         task_instances.sort(key=lambda x: x[1])
-        
-        # Initialize scores for this task type
+
         scores_across_instances = {
-            'best_n_clip': [], 
+            'best_n_clip': [],
             'best_pl': [],
             'instance_details': {}
         }
-        
-        for task_dir, task_number in tqdm(task_instances, desc=f"Processing {task_type}"):
-            print(f"  Processing {task_dir} (instance {task_number})")
-            
-            task_instance_dir = os.path.join(output_base_dir, task_dir)
-            renders_dir = os.path.join(task_instance_dir, "renders")
-            
-            if not os.path.exists(renders_dir):
-                print(f"    Warning: renders directory not found in {task_dir}")
-                continue
-            
-            # Get ground truth images from data directory
-            gt_renders_dir = f"data/blendergym/{task_dir}/renders/goal"
-            if not os.path.exists(gt_renders_dir):
-                print(f"    Warning: ground truth renders directory not found: {gt_renders_dir}")
-                continue
-            
-            # Store scores for this instance
-            task_instance_scores = {}
-            
-            # Get all round directories (1, 2, 3, 4, etc.)
-            round_dirs = [d for d in os.listdir(renders_dir) 
-                         if os.path.isdir(os.path.join(renders_dir, d))]
-            round_dirs.sort(key=lambda x: int(x))
-            
-            if not round_dirs:
-                print(f"    Warning: no round directories found in {renders_dir}")
-                continue
-            
-            # Process each round
-            for round_dir in round_dirs:
-                round_path = os.path.join(renders_dir, round_dir)
-                task_instance_scores[round_dir] = {}
-                
-                n_clip_views = []
-                pl_views = []
-                
-                # Check for render1.png in this round
-                render1_path = os.path.join(round_path, "render1.png")
-                if not os.path.exists(render1_path):
-                    print(f"    Warning: render1.png not found in {round_path}")
-                    continue
-                
-                # Check for corresponding ground truth
-                gt_render1_path = os.path.join(gt_renders_dir, "render1.png")
-                if not os.path.exists(gt_render1_path):
-                    print(f"    Warning: ground truth render1.png not found in {gt_renders_dir}")
-                    continue
-                
+
+        # Run per-instance processing in parallel threads
+        max_workers = min(8, (os.cpu_count() or 4))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(process_task_instance, output_base_dir, task_dir)
+                for task_dir, _ in task_instances
+            ]
+
+            for future in tqdm(as_completed(futures), total=len(futures), desc=f"Processing {task_type}"):
                 try:
-                    # Load images
-                    proposal_render = Image.open(render1_path)
-                    gt_render = Image.open(gt_render1_path)
-                    
-                    # Compute scores
-                    n_clip = float(1 - clip_similarity(proposal_render, gt_render))
-                    pl = float(photometric_loss(proposal_render, gt_render))
-                    
-                    n_clip_views.append(n_clip)
-                    pl_views.append(pl)
-                    
-                    # Record scores for this render
-                    task_instance_scores[round_dir]['render1'] = {
-                        'n_clip': n_clip,
-                        'pl': pl
-                    }
-                    
+                    task_dir, task_instance_scores, best_n_clip, best_pl = future.result()
+                    scores_across_instances['instance_details'][task_dir] = task_instance_scores
+                    if best_n_clip is not None and best_pl is not None:
+                        scores_across_instances['best_n_clip'].append(best_n_clip)
+                        scores_across_instances['best_pl'].append(best_pl)
+                        print(f"    {task_dir}: Best n_clip={best_n_clip:.4f}, Best pl={best_pl:.4f}")
+                    else:
+                        print(f"    {task_dir}: No valid scores")
                 except Exception as e:
-                    print(f"    Error processing {round_path}: {e}")
-                    continue
-                
-                # Check for render2.png if it exists
-                render2_path = os.path.join(round_path, "render2.png")
-                gt_render2_path = os.path.join(gt_renders_dir, "render2.png")
-                
-                if os.path.exists(render2_path) and os.path.exists(gt_render2_path):
-                    try:
-                        proposal_render2 = Image.open(render2_path)
-                        gt_render2 = Image.open(gt_render2_path)
-                        
-                        n_clip2 = float(1 - clip_similarity(proposal_render2, gt_render2))
-                        pl2 = float(photometric_loss(proposal_render2, gt_render2))
-                        
-                        n_clip_views.append(n_clip2)
-                        pl_views.append(pl2)
-                        
-                        task_instance_scores[round_dir]['render2'] = {
-                            'n_clip': n_clip2,
-                            'pl': pl2
-                        }
-                        
-                    except Exception as e:
-                        print(f"    Error processing render2 in {round_path}: {e}")
-                        continue
-                
-                # Compute average scores for this round
-                if n_clip_views:
-                    avg_n_clip = sum(n_clip_views) / len(n_clip_views)
-                    avg_pl = sum(pl_views) / len(pl_views)
-                    
-                    task_instance_scores[round_dir]['avg_n_clip'] = avg_n_clip
-                    task_instance_scores[round_dir]['avg_pl'] = avg_pl
-            
-            # Find best scores for this instance
-            if task_instance_scores:
-                # Filter out rounds without scores
-                valid_rounds = {k: v for k, v in task_instance_scores.items() 
-                              if 'avg_n_clip' in v and 'avg_pl' in v}
-                
-                if valid_rounds:
-                    best_n_clip_round = min(valid_rounds.keys(), 
-                                          key=lambda r: valid_rounds[r]['avg_n_clip'])
-                    best_pl_round = min(valid_rounds.keys(), 
-                                      key=lambda r: valid_rounds[r]['avg_pl'])
-                    
-                    best_n_clip = valid_rounds[best_n_clip_round]['avg_n_clip']
-                    best_pl = valid_rounds[best_pl_round]['avg_pl']
-                    
-                    # Record best scores
-                    task_instance_scores['best_n_clip'] = (best_n_clip_round, best_n_clip)
-                    task_instance_scores['best_pl'] = (best_pl_round, best_pl)
-                    
-                    # Add to overall scores
-                    scores_across_instances['best_n_clip'].append(best_n_clip)
-                    scores_across_instances['best_pl'].append(best_pl)
-                    
-                    print(f"    Best n_clip: {best_n_clip:.4f} (round {best_n_clip_round})")
-                    print(f"    Best pl: {best_pl:.4f} (round {best_pl_round})")
-                else:
-                    print(f"    No valid scores found for {task_dir}")
-            
-            # Save instance scores
-            scores_across_instances['instance_details'][task_dir] = task_instance_scores
-            
-            # Save individual instance scores
-            instance_scores_path = os.path.join(task_instance_dir, 'scores.json')
-            with open(instance_scores_path, 'w') as f:
-                json.dump(task_instance_scores, f, indent=4)
-        
-        # Compute overall scores for this task type
+                    print(f"    Error processing {task_type} instance: {e}")
+
+        # Aggregate results for this task type
         if scores_across_instances['best_n_clip']:
             scores_across_tasks[task_type] = {
                 'best_n_clip': sum(scores_across_instances['best_n_clip']) / len(scores_across_instances['best_n_clip']),
                 'best_pl': sum(scores_across_instances['best_pl']) / len(scores_across_instances['best_pl']),
                 'num_instances': len(scores_across_instances['best_n_clip'])
             }
-            
+
             print(f"  Task {task_type} overall scores:")
             print(f"    Average best n_clip: {scores_across_tasks[task_type]['best_n_clip']:.4f}")
             print(f"    Average best pl: {scores_across_tasks[task_type]['best_pl']:.4f}")
@@ -310,7 +306,7 @@ def main():
         else:
             print(f"  No valid scores for task type {task_type}")
             scores_across_tasks[task_type] = {}
-        
+
         intermediates[task_type] = scores_across_instances
     
     # Save overall results
