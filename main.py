@@ -351,6 +351,8 @@ async def main():
     if args.target_description:
         with open(args.target_description, 'r') as f:
             target_description = f.read().strip()
+    else:
+        target_description = None
 
     # Init agents
     generator = GeneratorAgentClient(args.generator_script)

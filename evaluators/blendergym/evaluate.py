@@ -218,10 +218,13 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate AgenticVerifier blendergym results')
     parser.add_argument('test_id', type=str, help='Test ID (e.g., 20250815_150016)')
     parser.add_argument('--output_dir', type=str, default=None, 
-                       help='Output directory for evaluation results (default: output/blendergym/{test_id}/evaluation)')
+                       help='Output directory for evaluation results (default: output/blendergym/{test_id}/)_evaluation)')
+    parser.add_argument('--missing_round_penalty_factor', type=float, default=2,
+                        help='Penalty factor to multiply scores for missing earlier rounds when later rounds exist (default: 1.2)')
     
     args = parser.parse_args()
     test_id = args.test_id
+    penalty_factor = float(args.missing_round_penalty_factor)
     
     # Set up paths
     output_base_dir = f"output/blendergym/{test_id}"
@@ -231,7 +234,7 @@ def main():
     if args.output_dir:
         eval_output_dir = args.output_dir
     else:
-        eval_output_dir = os.path.join(output_base_dir, "evaluation")
+        eval_output_dir = os.path.join(output_base_dir, "_evaluation")
     
     os.makedirs(eval_output_dir, exist_ok=True)
     
@@ -291,12 +294,61 @@ def main():
                 except Exception as e:
                     print(f"    Error processing {task_type} instance: {e}")
 
+        # Aggregate per-round averages across all instances (rounds 1..9)
+        per_round_values = {str(i): {'n_clip': [], 'pl': [], 'penalized_count': 0} for i in range(1, 11)}
+        for instance_scores in scores_across_instances['instance_details'].values():
+            # Collect available round indices for this instance
+            available_rounds = sorted(
+                [int(r) for r, v in instance_scores.items() if isinstance(v, dict) and 'avg_n_clip' in v and 'avg_pl' in v]
+            )
+            if not available_rounds:
+                continue
+            max_available_round = max(available_rounds)
+
+            for round_idx in range(1, 11):
+                key = str(round_idx)
+                # Case 1: round exists normally
+                if key in instance_scores and 'avg_n_clip' in instance_scores[key] and 'avg_pl' in instance_scores[key]:
+                    per_round_values[key]['n_clip'].append(instance_scores[key]['avg_n_clip'])
+                    per_round_values[key]['pl'].append(instance_scores[key]['avg_pl'])
+                    continue
+
+                # Case 2: earlier round missing but later rounds exist -> penalize
+                if round_idx < max_available_round:
+                    # Find the next available later round to base the penalty on
+                    later_rounds = [r for r in available_rounds if r > round_idx]
+                    if not later_rounds:
+                        continue
+                    next_round = min(later_rounds)
+                    next_key = str(next_round)
+                    base_n = instance_scores[next_key]['avg_n_clip']
+                    base_pl = instance_scores[next_key]['avg_pl']
+                    per_round_values[key]['n_clip'].append(base_n * penalty_factor)
+                    per_round_values[key]['pl'].append(base_pl * penalty_factor)
+                    per_round_values[key]['penalized_count'] += 1
+                    continue
+                # Case 3: missing because process ended (no later rounds) -> ignore
+
+        per_round_summary = {}
+        for key, vals in per_round_values.items():
+            if vals['n_clip'] and vals['pl']:
+                per_round_summary[key] = {
+                    'avg_n_clip': sum(vals['n_clip']) / len(vals['n_clip']),
+                    'avg_pl': sum(vals['pl']) / len(vals['pl']),
+                    'num_instances': len(vals['n_clip']),
+                    'num_penalized': int(vals['penalized_count'])
+                }
+
+        # Store per-round aggregation in intermediates structure too
+        scores_across_instances['per_round'] = per_round_summary
+
         # Aggregate results for this task type
         if scores_across_instances['best_n_clip']:
             scores_across_tasks[task_type] = {
                 'best_n_clip': sum(scores_across_instances['best_n_clip']) / len(scores_across_instances['best_n_clip']),
                 'best_pl': sum(scores_across_instances['best_pl']) / len(scores_across_instances['best_pl']),
-                'num_instances': len(scores_across_instances['best_n_clip'])
+                'num_instances': len(scores_across_instances['best_n_clip']),
+                'per_round': per_round_summary
             }
 
             print(f"  Task {task_type} overall scores:")
