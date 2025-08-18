@@ -95,7 +95,10 @@ def main():
     print("Total: ", sum([v["score"] for v in results_dict.values()]))
     
     if args.response_path is None:
-        response_path = jpg_image_path.replace(".jpg", "_eval.json")
+        response_path = jpg_image_path.replace(".jpg", "_ref_free.json")
+    else:
+        response_path = args.response_path
+    print(f"Saving response to {response_path}")
     json.dump(results_dict, open(response_path, "w"))
 
 
