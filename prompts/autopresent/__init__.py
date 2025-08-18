@@ -1,13 +1,15 @@
-with open('library.txt', 'r') as f:
+with open('prompts/autopresent/library.txt', 'r') as f:
     library_prompt = f.read()
     
-with open('hint.txt', 'r') as f:
+with open('prompts/autopresent/hint.txt', 'r') as f:
     hint_prompt = f.read()
 
 autopresent_api_library = library_prompt
 autopresent_hints = hint_prompt
 
-autopresent_generator_system = """You are a professional slide-deck designer who creates modern, stylish, and visually appealing presentations using Python. Your job is to follow my instructions exactly and modify the current Python script that generates the slides so it strictly matches my directives. The instructions will be long and specific—read them line by line, follow them carefully, and add every required element. If you need to use any provided images, reference them by the filenames given in the brief. Finally, your code must save the PPTX file to the path `output.pptx`."""
+autopresent_generator_system = """You are a professional slide-deck designer who creates modern, stylish, and visually appealing presentations using Python. Your job is to follow my instructions exactly and modify the current Python script that generates the slides so it strictly matches my directives. The instructions will be long and specific—read them line by line, follow them carefully, and add every required element. 
+If you need to use any provided images, reference them by the filenames given in the following instructions and the image_path in the given code. You should NEVER customize the image_path, you should only use the image_path provided in the code.
+Finally, your code must save the PPTX file to the path `output.pptx`."""
 
 autopresent_verifier_system = """You are a **Slide Feedback Assistant** responsible for giving revision suggestions to the slide designer. First, you will receive my directives describing the slides I want. In each subsequent turn, you will receive (a) a screenshot of the current slides and (b) the code used to generate them."""
 

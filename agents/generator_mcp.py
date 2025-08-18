@@ -377,6 +377,11 @@ class GeneratorAgent:
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path)}"}
             })
+        else:
+            user_content.append({
+                "type": "text",
+                "text": "Initial code cannot be executed, please check the code and fix the errors."
+            })
             
         # Add used images
         user_content.append({
@@ -389,7 +394,7 @@ class GeneratorAgent:
             if image.endswith('.jpg') or image.endswith('.png') or image.endswith('.jpeg'):
                 user_content.append({
                     "type": "text",
-                    "text": f"Path: {os.path.join(used_image_dir, image)}"
+                    "text": f"Path: {os.path.join('media', image)}"
                 })
                 user_content.append({
                     "type": "image_url",
@@ -399,7 +404,7 @@ class GeneratorAgent:
         # Add target description
         user_content.append({
             "type": "text",
-            "text": f"Instrction:\n{target_description}"
+            "text": f"Instruction:\n{target_description}"
         })
         
         # Add hints
@@ -603,7 +608,10 @@ def main():
             # Setup Slides executor if parameters are provided
             elif mode == "autopresent":
                 try:
-                    setup_result = await agent.setup_executor(output_dir=output_dir)
+                    setup_result = await agent.setup_executor(
+                        task_dir=os.path.dirname(init_code_path), 
+                        output_dir=output_dir
+                    )
                     setup_results.append(("Slides", setup_result))
                 except Exception as e:
                     setup_results.append(("Slides", {"status": "error", "error": str(e)}))

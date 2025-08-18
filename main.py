@@ -346,6 +346,11 @@ async def main():
 
     # Prepare output dirs
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Prepare target description
+    if args.target_description:
+        with open(args.target_description, 'r') as f:
+            target_description = f.read().strip()
 
     # Init agents
     generator = GeneratorAgentClient(args.generator_script)
@@ -366,7 +371,7 @@ async def main():
             "init_code_path": args.init_code_path,
             "init_image_path": args.init_image_path,
             "target_image_path": args.target_image_path,
-            "target_description": args.target_description,
+            "target_description": target_description,
             "thought_save" : args.output_dir + "/generator_thoughts.json"
         }
         
@@ -399,7 +404,7 @@ async def main():
             "max_rounds": args.max_rounds,
             "task_name": args.task_name,
             "target_image_path": args.target_image_path,
-            "target_description": args.target_description,
+            "target_description": target_description,
             "thought_save": args.output_dir + "/verifier_thoughts",
         }
         
