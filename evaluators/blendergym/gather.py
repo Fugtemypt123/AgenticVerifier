@@ -130,7 +130,7 @@ def compute_overall_scores(intermediates: Dict[str, Any],
 
 def main():
     parser = argparse.ArgumentParser(description='Gather overall scores from intermediate scores')
-    parser.add_argument('input_file', type=str, help='Path to intermediate_scores.json file')
+    parser.add_argument('test_id', type=str, help='Test ID (e.g., 20250815_150016)')
     parser.add_argument('--output_file', type=str, default=None, 
                        help='Output file path (default: overall_scores.json in same directory)')
     parser.add_argument('--missing_round_penalty_max', type=float, default=2.0,
@@ -142,19 +142,21 @@ def main():
     
     args = parser.parse_args()
     
-    # Load intermediate scores
-    if not os.path.exists(args.input_file):
-        raise FileNotFoundError(f"Input file {args.input_file} does not exist.")
+    input_file = f'output/blendergym/{args.test_id}/_evaluation/intermediate_scores.json'
     
-    print(f"Loading intermediate scores from: {args.input_file}")
-    with open(args.input_file, 'r') as f:
+    # Load intermediate scores
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file {input_file} does not exist.")
+    
+    print(f"Loading intermediate scores from: {input_file}")
+    with open(input_file, 'r') as f:
         intermediates = json.load(f)
     
     # Determine output file path
     if args.output_file:
         output_path = args.output_file
     else:
-        input_dir = os.path.dirname(args.input_file)
+        input_dir = os.path.dirname(input_file)
         output_path = os.path.join(input_dir, 'overall_scores.json')
     
     # Compute overall scores
@@ -173,7 +175,7 @@ def main():
     
     # Print summary
     print(f"\n=== Summary ===")
-    print(f"Input file: {args.input_file}")
+    print(f"Input file: {input_file}")
     print(f"Output file: {output_path}")
     
     for task_type, scores in scores_across_tasks.items():

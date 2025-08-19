@@ -153,6 +153,27 @@ elif result.get("status") == "continue":
     print(f"Feedback: {feedback}")
 ```
 
+### 3. Dual-Agent Interaction
+
+The dual-agent system creates an iterative feedback loop between generation and verification.
+
+#### Workflow
+
+1. **Initialization**: Set up generator and verifier sessions with target images and initial code
+2. **Generation**: Generator creates code based on requirements and feedback
+3. **Execution**: Code is automatically executed (3D mode) or manually executed
+4. **Verification**: Verifier compares current scene with target images and generates feedback
+5. **Iteration**: Feedback is passed back to generator for next iteration
+6. **Completion**: Process continues until success or max rounds reached
+
+#### Key Features
+
+- **Automated Feedback Loop**: Seamless integration between generation and verification
+- **Multi-Round Iteration**: Supports up to 10 rounds of improvement
+- **Automatic Execution**: 3D mode includes automatic Blender execution
+- **Visual Analysis**: AI-powered image comparison and scene investigation
+- **Context Preservation**: Maintains conversation history across rounds
+
 ## Quick Start
 
 ### Method 1: Using main.py (Single Instance)
@@ -204,6 +225,34 @@ python runners/blendergym.py
 ```
 
 These runner scripts automatically iterate through all available instances in the benchmark and generate comprehensive evaluation results.
+
+## Evaluation
+
+After running benchmarks, you can evaluate the results using the evaluation scripts.
+
+### Step 1: Run Evaluation
+
+```bash
+# For blendergym results
+python evaluators/blendergym/evaluate.py 20250818_101357
+
+# For autopresent results  
+python evaluators/autopresent/evaluate.py 20250818_101357
+```
+
+The test ID (e.g., `20250818_101357`) is automatically generated when running the benchmark and appears in the `output/blendergym/` or `output/autopresent/` directory.
+
+### Step 2: Gather Results
+
+```bash
+# For blendergym results
+python evaluators/blendergym/gather.py 20250817_035024
+
+# For autopresent results
+python evaluators/autopresent/gather.py 20250817_035024
+```
+
+The gather script processes the intermediate evaluation results and generates a comprehensive summary.
 
 ## Advanced Usage
 
