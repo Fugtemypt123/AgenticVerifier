@@ -216,6 +216,7 @@ The `runners/` directory contains scripts for testing all instances in a benchma
 
 ```bash
 export OPENAI_API_KEY=your-openai-key
+export OPENAI_BASE_URL=your-openai-url # https://api.openai.com/v1
 
 # Run autopresent benchmark (tests all autopresent instances)
 python runners/autopresent.py

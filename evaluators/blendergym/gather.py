@@ -13,16 +13,14 @@ from typing import Dict, Any, List
 
 
 def aggregate_per_round_scores(scores_across_instances: Dict[str, Any], 
-                              penalty_max: float = 2.0, 
-                              penalty_min: float = 1.0,
+                              penalty_factor: float = 2.0,
                               max_rounds: int = 10) -> Dict[str, Any]:
     """
     Aggregate per-round averages across all instances (rounds 1..10).
     
     Args:
         scores_across_instances: The intermediate scores structure
-        penalty_max: Max penalty factor for earliest rounds
-        penalty_min: Min penalty factor for latest rounds  
+        penalty_factor: Fixed penalty factor for missing earlier rounds
         max_rounds: Maximum number of rounds to consider
         
     Returns:
@@ -39,15 +37,17 @@ def aggregate_per_round_scores(scores_across_instances: Dict[str, Any],
             continue
         max_available_round = max(available_rounds)
 
+        # Process each round
         for round_idx in range(1, max_rounds + 1):
             key = str(round_idx)
+            
             # Case 1: round exists normally
             if key in instance_scores and 'avg_n_clip' in instance_scores[key] and 'avg_pl' in instance_scores[key]:
                 per_round_values[key]['n_clip'].append(instance_scores[key]['avg_n_clip'])
                 per_round_values[key]['pl'].append(instance_scores[key]['avg_pl'])
                 continue
 
-            # Case 2: earlier round missing but later rounds exist -> penalize
+            # Case 2: earlier round missing but later rounds exist -> apply fixed penalty
             if round_idx < max_available_round:
                 # Find the next available later round to base the penalty on
                 later_rounds = [r for r in available_rounds if r > round_idx]
@@ -57,17 +57,25 @@ def aggregate_per_round_scores(scores_across_instances: Dict[str, Any],
                 next_key = str(next_round)
                 base_n = instance_scores[next_key]['avg_n_clip']
                 base_pl = instance_scores[next_key]['avg_pl']
-                # Decaying penalty: higher for earlier rounds, lower for later rounds
-                if max_rounds > 1:
-                    t = (round_idx - 1) / (max_rounds - 1)
-                else:
-                    t = 0.0
-                penalty_factor_round = penalty_max - t * (penalty_max - penalty_min)
-                per_round_values[key]['n_clip'].append(base_n * penalty_factor_round)
-                per_round_values[key]['pl'].append(base_pl * penalty_factor_round)
+                # Apply fixed penalty factor
+                per_round_values[key]['n_clip'].append(base_n * penalty_factor)
+                per_round_values[key]['pl'].append(base_pl * penalty_factor)
                 per_round_values[key]['penalized_count'] += 1
                 continue
-            # Case 3: missing because process ended (no later rounds) -> ignore
+            
+            # Case 3: missing because process ended -> apply exponential decay
+            if round_idx > max_available_round:
+                # Find the last available round to base the decay on
+                last_round = max_available_round
+                last_key = str(last_round)
+                base_n = instance_scores[last_key]['avg_n_clip']
+                base_pl = instance_scores[last_key]['avg_pl']
+                # Calculate exponential decay: divide by 2 for each round after the last available
+                decay_factor = penalty_factor ** (round_idx - last_round)
+                per_round_values[key]['n_clip'].append(base_n / decay_factor)
+                per_round_values[key]['pl'].append(base_pl / decay_factor)
+                per_round_values[key]['penalized_count'] += 1
+                continue
 
     per_round_summary = {}
     for key, vals in per_round_values.items():
@@ -83,16 +91,14 @@ def aggregate_per_round_scores(scores_across_instances: Dict[str, Any],
 
 
 def compute_overall_scores(intermediates: Dict[str, Any], 
-                          penalty_max: float = 2.0, 
-                          penalty_min: float = 1.0,
+                          penalty_factor: float = 2.0,
                           max_rounds: int = 10) -> Dict[str, Any]:
     """
     Compute overall scores from intermediate scores.
     
     Args:
         intermediates: The intermediate scores loaded from JSON
-        penalty_max: Max penalty factor for earliest rounds
-        penalty_min: Min penalty factor for latest rounds
+        penalty_factor: Fixed penalty factor for missing earlier rounds
         max_rounds: Maximum number of rounds to consider
         
     Returns:
@@ -105,7 +111,7 @@ def compute_overall_scores(intermediates: Dict[str, Any],
         
         # Aggregate per-round averages across all instances
         per_round_summary = aggregate_per_round_scores(
-            scores_across_instances, penalty_max, penalty_min, max_rounds
+            scores_across_instances, penalty_factor, max_rounds
         )
         
         # Aggregate results for this task type
@@ -133,10 +139,8 @@ def main():
     parser.add_argument('test_id', type=str, help='Test ID (e.g., 20250815_150016)')
     parser.add_argument('--output_file', type=str, default=None, 
                        help='Output file path (default: overall_scores.json in same directory)')
-    parser.add_argument('--missing_round_penalty_max', type=float, default=2.0,
-                        help='Max penalty factor for earliest rounds.')
-    parser.add_argument('--missing_round_penalty_min', type=float, default=1.0,
-                        help='Min penalty factor for latest rounds.')
+    parser.add_argument('--missing_round_penalty_factor', type=float, default=2.0,
+                        help='Fixed penalty factor for missing earlier rounds.')
     parser.add_argument('--max_rounds', type=int, default=10,
                         help='Maximum number of rounds to consider.')
     
@@ -163,8 +167,7 @@ def main():
     print(f"Computing overall scores...")
     scores_across_tasks = compute_overall_scores(
         intermediates, 
-        args.missing_round_penalty_max, 
-        args.missing_round_penalty_min,
+        args.missing_round_penalty_factor,
         args.max_rounds
     )
     
