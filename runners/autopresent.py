@@ -41,8 +41,8 @@ def check_failed_tasks(test_output_dir: str) -> List[Dict]:
     print(f"Checking for failed tasks in: {test_output_dir}")
     
     # Look for task directories
-    for task_category in task_list:
-        for task_dir in (test_output_path / task_category).iterdir():
+    for task_type in task_list:
+        for task_dir in (test_output_path / task_type).iterdir():
             if not task_dir.is_dir():
                 continue
                 
@@ -67,21 +67,16 @@ def check_failed_tasks(test_output_dir: str) -> List[Dict]:
                 print(f"❌ Found failed task: {task_name} - {failure_reason}")
                 # Try to reconstruct task config from task name
                 # Task name format is typically like "business/slides_1", "design/slides_2", etc.
-                parts = task_name.split('/')
-                if len(parts) == 2:
-                    task_type = parts[0]
-                    slides_part = parts[1]
-                    if slides_part.startswith('slides_'):
-                        task_id = slides_part[7:]  # Remove 'slides_' prefix
-                        failed_tasks.append({
-                            "task_name": task_type,
-                            "task_id": task_id,
-                            "failure_reason": failure_reason
-                        })
-                    else:
-                        print(f"Warning: Could not parse slides part: {slides_part}")
+                slides_part = task_name
+                if slides_part.startswith('slides_'):
+                    task_id = slides_part[7:]  # Remove 'slides_' prefix
+                    failed_tasks.append({
+                        "task_name": task_type,
+                        "task_id": task_id,
+                        "failure_reason": failure_reason
+                    })
                 else:
-                    print(f"Warning: Could not parse task name: {task_name}")
+                    print(f"Warning: Could not parse slides part: {slides_part}")
         
     print(f"Found {len(failed_tasks)} failed tasks")
     return failed_tasks
