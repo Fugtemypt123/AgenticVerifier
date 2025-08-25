@@ -492,7 +492,7 @@ def main():
             agent_holder['agent'] = agent
             # Initialize server executor
             if mode == "blendergym" or mode == "autopresent":
-                setup_result = await agent.setup_executor(api_key=api_key)
+                setup_result = await agent.setup_executor(vision_model=vision_model, api_key=api_key, api_base_url=api_base_url)
                 if setup_result.get("status") != "success":
                     return {"status": "error", "error": f"Image server setup failed: {setup_result.get('error', setup_result)}"}
             elif mode == "blendergym-hard":

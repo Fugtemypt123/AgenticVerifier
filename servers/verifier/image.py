@@ -10,7 +10,7 @@ import numpy as np
 from typing import Dict
 from mcp.server.fastmcp import FastMCP
 import logging
-import openai
+from openai import OpenAI
 
 # 创建全局 MCP 实例
 mcp = FastMCP("image-server")
@@ -65,19 +65,14 @@ class PILExecutor:
             sys.stdout, sys.stderr = old_stdout, old_stderr
 
 class ImageDifferentiationTool:
-    def __init__(self, api_key: str = None, api_base_url: str = None):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+    def __init__(self, vision_model: str = "gpt-4o", api_key: str = None, api_base_url: str = None):
+        self.model = vision_model
+        self.api_key = api_key
         if not self.api_key:
             raise ValueError("OpenAI API key must be provided.")
-        openai.api_key = self.api_key
         # Allow overriding OpenAI-compatible base URL (e.g., Azure, local proxy)
-        self.api_base_url = api_base_url or os.getenv("OPENAI_BASE_URL")
-        if self.api_base_url:
-            try:
-                # For openai>=1.0 clients, base_url is set on client, but the legacy interface can respect env var
-                openai.base_url = self.api_base_url
-            except Exception:
-                pass
+        self.api_base_url = api_base_url or "https://api.openai.com/v1"
+        self.client = OpenAI(api_key=self.api_key, base_url=self.api_base_url)
 
     def pil_to_base64(self, image: Image.Image) -> str:
         buf = io.BytesIO()
@@ -129,21 +124,21 @@ class ImageDifferentiationTool:
             ]}
         ]
 
-        response = openai.chat.completions.create(
-            model="claude-sonnet-4-20250514" if self.api_base_url == "https://api.anthropic.com/v1" else "gpt-4o",
+        response = self.client.chat.completions.create(
+            model=self.model,
             messages=messages,
             max_tokens=512
         )
         return response.choices[0].message.content
 
 @mcp.tool()
-def initialize_executor(api_key: str, api_base_url: str = None) -> dict:
+def initialize_executor(vision_model: str, api_key: str, api_base_url: str = None) -> dict:
     """
     初始化ImageDifferentiationTool，设置api_key。
     """
     global _image_tool
     try:
-        _image_tool = ImageDifferentiationTool(api_key=api_key, api_base_url=api_base_url)
+        _image_tool = ImageDifferentiationTool(vision_model=vision_model, api_key=api_key, api_base_url=api_base_url)
         return {"status": "success", "message": "ImageDifferentiationTool initialized with api_key."}
     except Exception as e:
         return {"status": "error", "error": str(e)}
