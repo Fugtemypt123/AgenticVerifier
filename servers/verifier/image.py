@@ -110,6 +110,11 @@ class ImageDifferentiationTool:
 
         enhancer = ImageEnhance.Brightness(diff)
         diff_bright = enhancer.enhance(4.0)
+        
+        if path1.endswith('png'):
+            image_type = 'png'
+        else:
+            image_type = 'jpeg'
 
         b64s = [self.pil_to_base64(im) for im in [img1, img2, img1_high, img2_high]]
 
@@ -117,15 +122,15 @@ class ImageDifferentiationTool:
             {"role": "system", "content": "You are an expert in image comparison. You will receive two original images and a difference-highlighted version. Describe the visual differences in natural language in detail. If there is almost no difference, just say 'No difference'."},
             {"role": "user", "content": [
                 {"type": "text", "text": "Here are the two original images and their highlighted (red) visual difference parts. Please focus on the highlighted parts and describe the visual difference in these parts. If there is almost no difference, just say 'No difference'."},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[0]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[1]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[2]}"}},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64s[3]}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{b64s[0]}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{b64s[1]}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{b64s[2]}"}},
+                {"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{b64s[3]}"}},
             ]}
         ]
 
         response = openai.chat.completions.create(
-            model="gpt-4o",
+            model="claude-sonnet-4-20250514" if self.api_base_url == "https://api.anthropic.com/v1" else "gpt-4o",
             messages=messages,
             max_tokens=512
         )
