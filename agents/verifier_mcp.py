@@ -203,9 +203,20 @@ class VerifierAgent:
     def _get_image_base64(self, image_path: str) -> str:
         image = Image.open(image_path)
         img_byte_array = io.BytesIO()
-        image.save(img_byte_array, format='PNG')
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext in ['.jpg', '.jpeg']:
+            save_format = 'JPEG'
+            mime_subtype = 'jpeg'
+        elif ext == '.png':
+            save_format = 'PNG'
+            mime_subtype = 'png'
+        else:
+            save_format = image.format or 'PNG'
+            mime_subtype = save_format.lower() if save_format.lower() in ['jpeg', 'png'] else 'png'
+        image.save(img_byte_array, format=save_format)
         img_byte_array.seek(0)
-        return base64.b64encode(img_byte_array.read()).decode('utf-8')
+        b64 = base64.b64encode(img_byte_array.read()).decode('utf-8')
+        return f"data:image/{mime_subtype};base64,{b64}"
     
     def _build_blendergym_system_prompt(self, 
                              mode: str,
@@ -225,13 +236,13 @@ class VerifierAgent:
             self.target_image_path = os.path.abspath(target_image_path_1)
             user_content.extend([
                 {"type": "text", "text": "Target Image (View 1):"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}}
+                {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_1)}}
             ])
         target_image_path_2 = os.path.join(target_image_path, 'render2.png')
         if os.path.exists(target_image_path_2):
             user_content.extend([
                 {"type": "text", "text": "Target Image (View 2):"},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}}
+                {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_2)}}
             ])
             
         # Add hints
@@ -310,12 +321,12 @@ class VerifierAgent:
                 self.current_image_path = os.path.abspath(view1_path)
                 scene_content.extend([
                     {"type": "text", "text": f"Current scene (View 1):"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view1_path)}"}}
+                    {"type": "image_url", "image_url": {"url": self._get_image_base64(view1_path)}}
                 ])
             if os.path.exists(view2_path):
                 scene_content.extend([
                     {"type": "text", "text": f"Current scene (View 2):"},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(view2_path)}"}}
+                    {"type": "image_url", "image_url": {"url": self._get_image_base64(view2_path)}}
                 ])
             verify_message["content"].extend(scene_content)
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
@@ -325,7 +336,7 @@ class VerifierAgent:
             # add slide screenshot
             if os.path.exists(render_path):
                 verify_message["content"].append({"type": "text", "text": f"Generated slide screenshot:"})
-                verify_message["content"].append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(render_path)}"}})
+                verify_message["content"].append({"type": "image_url", "image_url": {"url": self._get_image_base64(render_path)}})
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
             self.memory.append(verify_message)
         else:
@@ -357,7 +368,7 @@ class VerifierAgent:
                                 "role": "user",
                                 "content": [
                                     {"type": "text", "text": "Generated image:"},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(tool_response['image'])}"}}
+                                    {"type": "image_url", "image_url": {"url": self._get_image_base64(tool_response['image'])}}
                                 ]
                             })
                 else:

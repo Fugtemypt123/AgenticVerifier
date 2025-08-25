@@ -45,7 +45,12 @@ def check_failed_tasks(test_output_dir: str) -> List[Dict]:
             continue
             
         task_name = task_dir.name
-        generator_thoughts_file = task_dir / "generator_thoughts.json"
+        
+        # remove '_evaluation' file, it is not a task
+        if '_evaluation' in task_name:
+            continue
+        
+        scores_file = task_dir / "scores.json"
         
         # Check if task failed
         failed = False
@@ -57,9 +62,9 @@ def check_failed_tasks(test_output_dir: str) -> List[Dict]:
         elif not any(task_dir.iterdir()):
             failed = True
             failure_reason = "Task directory is empty"
-        elif not generator_thoughts_file.exists():
+        elif not scores_file.exists():
             failed = True
-            failure_reason = "generator_thoughts.json not found"
+            failure_reason = "scores.json not found"
         
         if failed:
             print(f"❌ Found failed task: {task_name} - {failure_reason}")
@@ -110,7 +115,7 @@ def load_blendergym_dataset(base_path: str, task_name: str, task_id: Optional[st
         
     # If task_id is not None, only run the task_id
     if task_id is not None:
-        task_dirs = [(base_path / task_name / f"{task_name}{task_id}", task_name)]
+        task_dirs = [(base_path /  f"{task_name}{task_id}", task_name)]
     # Otherwise, run all tasks in the task_list
     else:
         task_dirs = []
@@ -178,7 +183,7 @@ def run_blendergym_task(task_config: Dict, args) -> tuple:
         "--mode", "blendergym",
         "--vision-model", args.vision_model,
         "--api-key", args.api_key,
-        "--openai-base-url", args.openai_base_url,
+        "--openai-base-url", args.openai_base_url if args.openai_base_url else "https://api.openai.com/v1",
         "--max-rounds", str(args.max_rounds),
         "--task-name", task_config["task_name"],
         "--init-code-path", str(task_config["init_code_path"]),
@@ -354,11 +359,11 @@ def main():
             print("No tasks match the specified filters!")
             sys.exit(1)
     
-    # Create output directory
+    # Create output directory (currently use the original output directory)
     if args.test_id is not None:
         # For retesting, create a new output directory with retest suffix
-        args.output_dir = f"output/blendergym/{args.test_id}_retest_{time.strftime('%Y%m%d_%H%M%S')}"
-        print(f"Retesting failed tasks. New output directory: {args.output_dir}")
+        args.output_dir = f"output/blendergym/{args.test_id}"
+        print(f"Retesting failed tasks. Use original output directory: {args.output_dir}")
     
     os.makedirs(args.output_dir, exist_ok=True)
     

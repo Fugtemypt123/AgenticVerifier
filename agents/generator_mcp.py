@@ -284,7 +284,7 @@ class GeneratorAgent:
             })
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_1)}"}
+                "image_url": {"url": self._get_image_base64(init_image_path_1)}
             })
         else:
             # At least we need one initial image
@@ -298,7 +298,7 @@ class GeneratorAgent:
             })
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path_2)}"}
+                "image_url": {"url": self._get_image_base64(init_image_path_2)}
             })
         
         # Add target images (for mode `blendergym`)
@@ -310,7 +310,7 @@ class GeneratorAgent:
             })
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_1)}"}
+                "image_url": {"url": self._get_image_base64(target_image_path_1)}
             })
         else:
             logging.error(f"Target image {target_image_path_1} does not exist!")
@@ -323,7 +323,7 @@ class GeneratorAgent:
             })
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(target_image_path_2)}"}
+                "image_url": {"url": self._get_image_base64(target_image_path_2)}
             })
         
         # Add hints 
@@ -380,7 +380,7 @@ class GeneratorAgent:
             })
             user_content.append({
                 "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(init_image_path)}"}
+                "image_url": {"url": self._get_image_base64(init_image_path)}
             })
         else:
             user_content.append({
@@ -403,7 +403,7 @@ class GeneratorAgent:
                 })
                 user_content.append({
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{self._get_image_base64(os.path.join(used_image_dir, image))}"}
+                    "image_url": {"url": self._get_image_base64(os.path.join(used_image_dir, image))}
                 })
         
         # Add target description
@@ -432,13 +432,24 @@ class GeneratorAgent:
         return full_prompt
     
     def _get_image_base64(self, image_path: str) -> str:
-        """Convert image to base64 string."""
+        """Return a full data URL for the image, preserving original jpg/png format."""
         image = Image.open(image_path)
         img_byte_array = io.BytesIO()
-        image.save(img_byte_array, format='PNG')
-        img_byte_array.seek(0) 
-        base64enc_image = base64.b64encode(img_byte_array.read()).decode('utf-8') 
-        return base64enc_image
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext in ['.jpg', '.jpeg']:
+            save_format = 'JPEG'
+            mime_subtype = 'jpeg'
+        elif ext == '.png':
+            save_format = 'PNG'
+            mime_subtype = 'png'
+        else:
+            # Fallback: keep original format if recognizable, else default to PNG
+            save_format = image.format or 'PNG'
+            mime_subtype = save_format.lower() if save_format.lower() in ['jpeg', 'png'] else 'png'
+        image.save(img_byte_array, format=save_format)
+        img_byte_array.seek(0)
+        base64enc_image = base64.b64encode(img_byte_array.read()).decode('utf-8')
+        return f"data:image/{mime_subtype};base64,{base64enc_image}"
     
     def _parse_generate_response(self, response: str) -> tuple:
         """

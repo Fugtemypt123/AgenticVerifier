@@ -243,6 +243,8 @@ python evaluators/autopresent/evaluate.py 20250818_101357
 
 The test ID (e.g., `20250818_101357`) is automatically generated when running the benchmark and appears in the `output/blendergym/` or `output/autopresent/` directory.
 
+([NOTE](): You must run the evaluation before rerun the tests)
+
 ### Step 2: Gather Results
 
 ```bash
