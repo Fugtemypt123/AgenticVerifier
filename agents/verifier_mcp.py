@@ -204,15 +204,42 @@ class VerifierAgent:
         image = Image.open(image_path)
         img_byte_array = io.BytesIO()
         ext = os.path.splitext(image_path)[1].lower()
+        
+        # Convert image to appropriate mode for saving
         if ext in ['.jpg', '.jpeg']:
             save_format = 'JPEG'
             mime_subtype = 'jpeg'
+            # JPEG doesn't support transparency, convert RGBA to RGB
+            if image.mode in ['RGBA', 'LA', 'P']:
+                # Convert P mode to RGB first, then handle RGBA
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                # Convert RGBA to RGB with white background
+                if image.mode == 'RGBA':
+                    # Create a white background
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    background.paste(image, mask=image.split()[-1])  # Use alpha channel as mask
+                    image = background
+                elif image.mode == 'LA':
+                    # Convert LA to RGB
+                    image = image.convert('RGB')
         elif ext == '.png':
             save_format = 'PNG'
             mime_subtype = 'png'
+            # PNG supports transparency, but convert P mode to RGBA
+            if image.mode == 'P':
+                image = image.convert('RGBA')
         else:
+            # Fallback: keep original format if recognizable, else default to PNG
             save_format = image.format or 'PNG'
             mime_subtype = save_format.lower() if save_format.lower() in ['jpeg', 'png'] else 'png'
+            # Handle P mode for fallback cases
+            if image.mode == 'P':
+                if save_format == 'JPEG':
+                    image = image.convert('RGB')
+                else:
+                    image = image.convert('RGBA')
+        
         image.save(img_byte_array, format=save_format)
         img_byte_array.seek(0)
         b64 = base64.b64encode(img_byte_array.read()).decode('utf-8')
