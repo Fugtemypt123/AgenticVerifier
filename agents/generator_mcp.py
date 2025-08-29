@@ -208,7 +208,7 @@ class GeneratorAgent:
         self._server_connected = False
         self.output_dir = output_dir
         # Decide which server to use
-        if mode == "blendergym":
+        if mode == "blendergym" or mode == "blendergym-hard":
             self.server_type = "blender"
             self.server_path = blender_server_path
         elif mode == "autopresent":
@@ -226,6 +226,12 @@ class GeneratorAgent:
             self.memory = self._build_autopresent_system_prompt(
                 mode, init_code_path, init_image_path, target_description
             )
+        elif mode == "blendergym-hard":
+            self.memory = self._build_blendergym_hard_system_prompt(
+                mode, task_name, init_code_path, init_image_path, target_image_path
+            )
+        else:
+            raise NotImplementedError("Mode not implemented")
     
     async def _ensure_server_connected(self):
         if not self._server_connected and self.server_type and self.server_path:
@@ -237,6 +243,93 @@ class GeneratorAgent:
         result = await self.tool_client.initialize_executor(self.server_type, **kwargs)
         return result
     
+    def _build_blendergym_hard_system_prompt(self, 
+                             mode: str, 
+                             task_name: str, 
+                             init_code_path: str = None, 
+                             init_image_path: str = None, 
+                             target_image_path: str = None) -> List[Dict]:
+        """
+        Build the system prompt for the generator for blendergym-hard mode.
+        """
+        full_prompt = []
+        # Add system prompt
+        full_prompt.append({
+            "role": "system",
+            "content": prompts_dict[mode]['system']['generator']
+        })
+        
+        # Add initial code & code analysis
+        init_code = open(init_code_path, 'r').read()
+        user_content = [{
+            "type": "text",
+            "text": f"Initial Code:\n```python\n{init_code}\n```"
+        }]
+        
+        # Add code analysis
+        code_analysis = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are a Blender Python code analysis expert."},
+                {"role": "user", "content": f"Please analyze the following Blender Python code line by line, \
+                explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
+            ]
+        )
+        code_analysis = code_analysis.choices[0].message.content
+        user_content.append({
+            "type": "text",
+            "text": f"Code Analysis:\n{code_analysis}"
+        })
+        
+        # Add initial images
+        init_image_path_1 = os.path.join(init_image_path, 'render1.png')
+        if os.path.exists(init_image_path_1):
+            user_content.append({
+                "type": "text",
+                "text": "Initial Image (View 1):"
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": self._get_image_base64(init_image_path_1)}
+            })
+        else:
+            # At least we need one initial image
+            raise ValueError(f"Initial image {init_image_path_1} does not exist!")
+        
+        # Add target images (for mode `blendergym`)
+        target_image_path_1 = os.path.join(target_image_path, 'visprompt1.png')
+        if os.path.exists(target_image_path_1):
+            user_content.append({
+                "type": "text",
+                "text": "Target Image (View 1):"
+            })
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": self._get_image_base64(target_image_path_1)}
+            })
+        else:
+            logging.error(f"Target image {target_image_path_1} does not exist!")
+        
+        # Add hints 
+        if prompts_dict[mode]['hints']['generator'][task_name] is not None:
+            user_content.append({
+                "type": "text",
+                "text": f"Hints:\n{prompts_dict[mode]['hints']['generator'][task_name]}"
+            })
+        
+        # Add output format
+        user_content.append({
+            "type": "text",
+            "text": prompts_dict[mode]['format']['generator']
+        })
+        
+        # Add all user content
+        full_prompt.append({
+            "role": "user",
+            "content": user_content
+        })
+        return full_prompt
+        
     def _build_blendergym_system_prompt(self, 
                              mode: str, 
                              task_name: str, 
@@ -635,7 +728,7 @@ def main():
             setup_results = []
             
             # Setup Blender executor if parameters are provided
-            if mode == "blendergym":
+            if mode == "blendergym" or mode == "blendergym-hard":
                 try:
                     setup_result = await agent.setup_executor(
                         blender_command=blender_command,

@@ -197,6 +197,10 @@ class VerifierAgent:
             self.memory = self._build_autopresent_system_prompt(
                 mode, target_descirption
             )
+        elif mode == "blendergym-hard":
+            self.memory = self._build_blendergym_hard_system_prompt(
+                mode, task_name, target_image_path
+            )
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -244,6 +248,34 @@ class VerifierAgent:
         img_byte_array.seek(0)
         b64 = base64.b64encode(img_byte_array.read()).decode('utf-8')
         return f"data:image/{mime_subtype};base64,{b64}"
+    
+    def _build_blendergym_hard_system_prompt(self, 
+                             mode: str,
+                             task_name: str,
+                             target_image_path: str) -> List[Dict]:
+        full_prompt = []
+        # System prompt
+        full_prompt.append({
+            "role": "system",
+            "content": prompts_dict[mode]['system']['verifier']
+        })
+        user_content = []
+        
+        # Add target image/description
+        target_image_path_1 = os.path.join(target_image_path, 'visprompt1.png')
+        if os.path.exists(target_image_path_1):
+            self.target_image_path = os.path.abspath(target_image_path_1)
+            user_content.extend([
+                {"type": "text", "text": "Target Image (View 1):"},
+                {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_1)}}
+            ])
+
+        # Add hints
+        if prompts_dict[mode]['hints'] is not None:
+            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']}"})
+            
+        full_prompt.append({"role": "user", "content": user_content})
+        return full_prompt
     
     def _build_blendergym_system_prompt(self, 
                              mode: str,
@@ -366,6 +398,8 @@ class VerifierAgent:
                 verify_message["content"].append({"type": "image_url", "image_url": {"url": self._get_image_base64(render_path)}})
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
             self.memory.append(verify_message)
+        elif self.mode == "blendergym-hard":
+            pass
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -498,7 +532,7 @@ def main():
         target_descirption: Optional[str] = None,
         image_server_path: Optional[str] = None,
         scene_server_path: Optional[str] = None,
-        blender_save: Optional[str] = None,
+        blender_save: Optional[str] = None, # The new file, we cover it each verification step
         api_base_url: Optional[str] = None,
     ) -> dict:
         

@@ -380,7 +380,7 @@ async def main():
         }
         
         # Add mode-specific parameters
-        if args.mode == "blendergym":
+        if args.mode == "blendergym" or args.mode == "blendergym-hard":
             generator_params.update({
                 "blender_server_path": args.blender_server_path,
                 "blender_command": args.blender_command,
@@ -421,7 +421,9 @@ async def main():
             })
         elif args.mode == "blendergym-hard":
             verifier_params.update({
-                "blender_save": args.output_dir + "/blender_file.blend" if args.save_blender_file else None,
+                "image_server_path": None,
+                "scene_server_path": args.scene_server_path, 
+                "blender_save": args.output_dir + "/blender_file.blend"
             })
         else:
             raise NotImplementedError("Mode not implemented")

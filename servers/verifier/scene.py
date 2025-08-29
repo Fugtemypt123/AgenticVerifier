@@ -100,6 +100,8 @@ class Investigator3D:
         current_file = bpy.data.filepath
         if current_file != self.blender_path:
             bpy.ops.wm.open_mainfile(filepath=str(self.blender_path))
+            # Ensure the filepath is set correctly for future saves
+            bpy.data.filepath = str(self.blender_path)
 
     def _get_or_create_cam(self):
         if "InvestigatorCamera" in bpy.data.objects:
@@ -120,6 +122,14 @@ class Investigator3D:
         bpy.ops.render.render(write_still=True)
         out = bpy.context.scene.render.filepath
         self.count += 1
+        
+        # Save the blender file after each operation
+        try:
+            bpy.ops.wm.save_mainfile(filepath=self.blender_path)
+            print(f"Blender file saved to: {self.blender_path}")
+        except Exception as e:
+            print(f"Warning: Failed to save blender file: {e}")
+        
         return out
 
     def focus_on_object(self, object_name: str) -> str:
