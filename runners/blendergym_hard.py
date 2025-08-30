@@ -377,7 +377,7 @@ def main():
     with open(os.path.join(args.output_dir, "tasks.json"), "w") as f:
         json.dump(tasks, f, indent=2)
         
-    raise ValueError("Not implemented")
+    tasks = tasks[:2]
     
     # Run tasks
     start_time = time.time()

@@ -264,6 +264,20 @@ class GeneratorAgent:
         # Store blender file path for Meshy asset generation
         if self.server_type == "blender" and "blender_file" in kwargs:
             self.blender_file_path = kwargs["blender_file"]
+            
+            # Initialize investigator for blendergym-hard and demo modes
+            if self.mode in ["blendergym-hard", "demo"] and "thought_save" in kwargs:
+                try:
+                    investigator_result = await self.tool_client.call_tool("blender", "initialize_investigator", {
+                        "thoughtprocess_save": kwargs["thought_save"],
+                        "blender_path": kwargs["blender_file"]
+                    })
+                    if investigator_result.get("status") == "success":
+                        logging.info("Investigator initialized successfully")
+                    else:
+                        logging.warning(f"Investigator initialization failed: {investigator_result.get('error')}")
+                except Exception as e:
+                    logging.warning(f"Failed to initialize investigator: {e}")
         
         return result
     
@@ -338,12 +352,12 @@ class GeneratorAgent:
         if mode == 'blendergym-hard':
             user_content.append({
                 "type": "text",
-                "text": f"Hints:\n{prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"
+                "text": f"Your task: {prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"
             })
         elif mode == 'demo':
             user_content.append({
                 "type": "text",
-                "text": f"Hints:\n{prompts_dict[mode]['hints']}"
+                "text": f"Your task: {prompts_dict[mode]['hints']}"
             })
         else:
             raise NotImplementedError("Mode not implemented")
@@ -622,7 +636,7 @@ class GeneratorAgent:
     def _get_tools(self) -> List[Dict]:
         """Get available tools for the generator agent."""
         if self.mode == "blendergym" or self.mode == "blendergym-hard" or self.mode == "demo":
-            return [{
+            tools = [{
                 "type": "function",
                 "function": {
                     "name": "generate_3d_asset",
@@ -654,6 +668,27 @@ class GeneratorAgent:
                     }
                 }
             }]
+            
+            # Add investigator tools for blendergym-hard and demo modes
+            if self.mode == "blendergym-hard" or self.mode == "demo":
+                tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "investigate_3d",
+                        "description": "A tool for detailed 3D scene investigation with the following operations: focus, zoom, move.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
+                                "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
+                                "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
+                            },
+                            "required": ["operation"]
+                        }
+                    }
+                })
+            
+            return tools
         else:
             return []
     
@@ -685,6 +720,61 @@ class GeneratorAgent:
                 else:
                     return {
                         'text': f"Failed to generate 3D asset: {result.get('error', 'Unknown error')}",
+                        'success': False
+                    }
+            elif function_name == "investigate_3d":
+                if self.server_type != "blender":
+                    return {'text': "Error: 3D investigation is only available for Blender mode", 'success': False}
+                
+                op = function_args.get('operation')
+                if op == 'focus':
+                    result = await self.tool_client.call_tool("blender", "focus", {
+                        "object_name": function_args.get("object_name", "")
+                    })
+                    if result.get("status") == "success":
+                        return {
+                            'text': f"Focused camera on object: {function_args.get('object_name', '')}",
+                            'success': True,
+                            'image': result.get('image')
+                        }
+                    else:
+                        return {
+                            'text': f"Failed to focus: {result.get('error', 'Unknown error')}",
+                            'success': False
+                        }
+                elif op == 'zoom':
+                    result = await self.tool_client.call_tool("blender", "zoom", {
+                        "direction": function_args.get("direction", "")
+                    })
+                    if result.get("status") == "success":
+                        return {
+                            'text': f"Zoomed {function_args.get('direction', '')}",
+                            'success': True,
+                            'image': result.get('image')
+                        }
+                    else:
+                        return {
+                            'text': f"Failed to zoom: {result.get('error', 'Unknown error')}",
+                            'success': False
+                        }
+                elif op == 'move':
+                    result = await self.tool_client.call_tool("blender", "move", {
+                        "direction": function_args.get("direction", "")
+                    })
+                    if result.get("status") == "success":
+                        return {
+                            'text': f"Moved camera {function_args.get('direction', '')}",
+                            'success': True,
+                            'image': result.get('image')
+                        }
+                    else:
+                        return {
+                            'text': f"Failed to move: {result.get('error', 'Unknown error')}",
+                            'success': False
+                        }
+                else:
+                    return {
+                        'text': f"Unknown operation: {op}",
                         'success': False
                     }
             else:
@@ -733,10 +823,21 @@ class GeneratorAgent:
                         
                         # If tool was successful, add success message
                         if tool_response.get('success'):
+                            # Add the tool response text
                             self.memory.append({
                                 "role": "user",
                                 "content": f"Tool execution successful: {tool_response['text']}. Please continue with code generation."
                             })
+                            
+                            # If there's an image from investigator tool, add it to memory
+                            if tool_response.get('image'):
+                                self.memory.append({
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": "Generated investigation image:"},
+                                        {"type": "image_url", "image_url": {"url": self._get_image_base64(tool_response['image'])}}
+                                    ]
+                                })
                         else:
                             self.memory.append({
                                 "role": "user",

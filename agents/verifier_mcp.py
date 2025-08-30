@@ -272,9 +272,9 @@ class VerifierAgent:
 
         # Add hints
         if mode == 'blendergym-hard':
-            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"})
+            user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"})
         elif mode == 'demo':
-            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']}"})
+            user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints']}"})
         else:
             raise NotImplementedError("Mode not implemented")
             
