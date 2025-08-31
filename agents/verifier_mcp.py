@@ -36,7 +36,10 @@ class VerifierAgent:
         self.thought_save = thought_save
         os.makedirs(self.thought_save, exist_ok=True)
         self.max_rounds = max_rounds
-        self.target_image_path = None
+        if mode == "blendergym":
+            self.target_image_path = os.path.abspath(os.path.join(target_image_path, 'render1.png'))
+        else:
+            self.target_image_path = None
         self.current_image_path = None
         self.current_round = 0
         self.tool_client = ExternalToolClient()

@@ -5,10 +5,10 @@ from typing import Dict, Any
 class ToolHandler:
     """Helper class for handling tool calls in generator and verifier agents."""
     
-    def __init__(self, tool_client, server_type: str, blender_file_path: str = None):
+    def __init__(self, tool_client, server_type: str):
         self.tool_client = tool_client
         self.server_type = server_type
-        self.blender_file_path = blender_file_path
+        self.blender_file_path = None
     
     async def handle_generator_tool_call(self, tool_call) -> Dict[str, Any]:
         """Handle tool calls from the generator agent."""
@@ -104,27 +104,13 @@ class ToolHandler:
     async def execute_script(self, code: str, round_num: int = None) -> Dict[str, Any]:
         """Execute Blender Python code directly (not as a tool call)."""
         try:
-            if self.server_type != "blender":
-                return {'text': "Error: Blender code execution is only available for Blender mode", 'success': False}
-            
             # Execute the Blender Python code
             result = await self.tool_client.exec_script(
                 server_type=self.server_type,
                 code=code,
                 round_num=round_num or 1,
             )
-            
-            if result.get("status") == "success":
-                return {
-                    'text': f"Successfully executed Blender Python code.",
-                    'success': True,
-                    'execution_result': result
-                }
-            else:
-                return {
-                    'text': f"Failed to execute Blender code: {result.get('error', 'Unknown error')}",
-                    'success': False
-                }
+            return result
         except Exception as e:
             return {'text': f"Error executing script: {str(e)}", 'success': False}
     

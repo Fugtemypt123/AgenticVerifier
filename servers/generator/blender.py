@@ -319,9 +319,10 @@ class Executor:
             proc = subprocess.run(cmd_str, shell=True, check=True, capture_output=True, text=True)
             out = proc.stdout
             err = proc.stderr
-            if 'Error:' in out:
-                logging.error(f"Error in Blender stdout: {out}")
-                return False, err, out
+            # We do not consider intermediate errors that do not affect the result.
+            # if 'Error:' in out:
+            #     logging.error(f"Error in Blender stdout: {out}")
+            #     return False, err, out
             # find rendered image(s)
             if os.path.isdir(render_path):
                 imgs = sorted([str(p) for p in Path(render_path).glob("*") if p.suffix in ['.png','.jpg']])

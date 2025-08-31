@@ -84,7 +84,7 @@ class ToolManager:
     @staticmethod
     def get_verifier_tools(mode: str) -> List[Dict]:
         """Get available tools for the verifier agent based on mode."""
-        if mode == "blendergym" or mode == "autopresent":
+        if mode == "blendergym":
             return [{
                 "type": "function",
                 "function": {

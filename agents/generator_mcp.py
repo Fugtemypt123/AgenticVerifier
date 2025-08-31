@@ -55,8 +55,6 @@ class GeneratorAgent:
         if mode == "blendergym" or mode == "blendergym-hard":
             self.server_type = "blender"
             self.server_path = blender_server_path
-            # Store blender file path for Meshy asset generation
-            self.blender_file_path = None  # Will be set during executor setup
         elif mode == "autopresent":
             self.server_type = "slides"
             self.server_path = slides_server_path
@@ -65,7 +63,7 @@ class GeneratorAgent:
         
         # Initialize prompt builder and tool handler
         self.prompt_builder = PromptBuilder(self.client)
-        self.tool_handler = ToolHandler(self.tool_client, self.server_type, self.blender_file_path)
+        self.tool_handler = ToolHandler(self.tool_client, self.server_type)
         
         # Initialize memory if initial parameters are provided
         if mode == "blendergym":
@@ -131,7 +129,7 @@ class GeneratorAgent:
         
         try:
             # Check if we need to use tools
-            use_tools = self.mode in ["blendergym", "blendergym-hard"] and self._server_connected
+            use_tools = self.mode == "blendergym-hard" and self._server_connected
             
             if use_tools:
                 # Get available tools
@@ -198,29 +196,23 @@ class GeneratorAgent:
                 ).choices[0].message.content
             
             # Parse the response to extract code if needed (only for modes that generate code)
-            if self.mode == "blendergym" or (self.mode == "blendergym-hard" and self.task_name.split('-')[0] != "level1"):
+            try:
                 _, _, full_code = parse_generate_response(generate_response)
-            else:
-                full_code = None
+            except:
+                full_code = ""
             
             # Auto-execute code if it contains "Full Code" and we're in a mode that supports code execution
             execution_result = None
-            if (full_code and 
-                "Full Code" in generate_response and 
-                self.mode in ["blendergym", "blendergym-hard"] and 
-                self._server_connected and
-                self.task_name.split('-')[0] != "level1"):  # level1 doesn't generate code
-                
-                try:
-                    self.current_round += 1
-                    execution_result = await self.tool_handler.execute_script(
-                        code=full_code,
-                        round_num=self.current_round,
-                    )
-                    logging.info(f"Auto-executed code for round {self.current_round}")
-                except Exception as e:
-                    logging.error(f"Failed to auto-execute code: {e}")
-                    execution_result = {"status": "error", "error": str(e)}
+            try:
+                self.current_round += 1
+                execution_result = await self.tool_handler.execute_script(
+                    code=full_code,
+                    round_num=self.current_round,
+                )
+                logging.info(f"Auto-executed code for round {self.current_round}")
+            except Exception as e:
+                logging.error(f"Failed to auto-execute code: {e}")
+                execution_result = {"status": "error", "error": str(e)}
             
             return {
                 "status": "success",

@@ -443,6 +443,8 @@ async def main():
                 print(f"Generator error: {gen_result['error']}")
                 break
             
+            print("gen_result: ", gen_result)
+            
             # Extract code from result
             code = gen_result.get("code") or gen_result.get("current_code") or gen_result.get("generated_code")
             if not code:
@@ -450,8 +452,6 @@ async def main():
                 break
                 
             print(f"Generated code (truncated):\n{code[:200]}...")
-            
-            print(f"Gen Result: {gen_result}")
             
             # Check if automatic execution happened
             if gen_result.get("execution_result"):
