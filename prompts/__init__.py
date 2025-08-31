@@ -31,9 +31,14 @@ prompts_dict = {
         'hints': autopresent_hints
     },
     'blendergym-hard': {
+        'system': {
+            'generator': blendergym_hard_generator_system_dict,
+            'verifier': blendergym_hard_verifier_system_dict
+        },
+        'format':{
+            'generator': blendergym_hard_generator_format_dict,
+            'verifier': blendergym_hard_verifier_format_dict
+        },
         'hints': blendergym_hard_hints
     },
-    'demo': {
-        'hints': demo_hints
-    }
 }

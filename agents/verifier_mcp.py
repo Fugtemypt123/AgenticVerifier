@@ -179,6 +179,7 @@ class VerifierAgent:
         self.current_round = 0
         self.tool_client = ExternalToolClient()
         self._tools_connected = False
+        self.task_name = task_name
         
         if mode == "blendergym" or mode == "autopresent":
             self.server_type = "image"
@@ -247,11 +248,11 @@ class VerifierAgent:
                              mode: str,
                              task_name: str,
                              target_image_path: str) -> List[Dict]:
+        level = task_name.split('-')[0]
         full_prompt = []
         # System prompt
-        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['verifier']})
+        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['verifier'][level]})
         user_content = []
-        
         # Add target image/description
         target_image_path_1 = os.path.join(target_image_path, 'visprompt1.png')
         if os.path.exists(target_image_path_1):
@@ -260,7 +261,8 @@ class VerifierAgent:
                 {"type": "text", "text": "Target Image (View 1):"},
                 {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_1)}}
             ])
-
+        else:
+            raise ValueError(f"Target image {target_image_path_1} does not exist!")
         user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"})
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
@@ -273,7 +275,6 @@ class VerifierAgent:
         # System prompt
         full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['verifier']})
         user_content = []
-        
         # Add target image/description
         target_image_path_1 = os.path.join(target_image_path, 'render1.png')
         if os.path.exists(target_image_path_1):
@@ -288,11 +289,11 @@ class VerifierAgent:
                 {"type": "text", "text": "Target Image (View 2):"},
                 {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_2)}}
             ])
-            
+        else:
+            raise ValueError(f"Target image {target_image_path_2} does not exist!")
         # Add hints
         if prompts_dict[mode]['hints']['verifier'][task_name] is not None:
-            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']['verifier'][task_name]}"})
-            
+            user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']['verifier'][task_name]}"})            
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
     
@@ -378,7 +379,9 @@ class VerifierAgent:
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
             self.memory.append(verify_message)
         elif self.mode == "blendergym-hard":
-            pass
+            level = self.task_name.split('-')[0]
+            verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier'][level]})
+            self.memory.append(verify_message)
         else:
             raise NotImplementedError("Mode not implemented")
         

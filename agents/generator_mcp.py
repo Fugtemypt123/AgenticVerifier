@@ -285,26 +285,21 @@ class GeneratorAgent:
         """
         Build the system prompt for the generator for blendergym-hard mode.
         """
+        level = task_name.split('-')[0]
         full_prompt = []
         # Add system prompt
-        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['generator']})
-        
-        # Add initial code & code analysis
-        init_code = open(init_code_path, 'r').read()
-        user_content = [{"type": "text", "text": f"Initial Code:\n```python\n{init_code}\n```"}]
-        
-        # Add code analysis
-        code_analysis = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a Blender Python code analysis expert."},
-                {"role": "user", "content": f"Please analyze the following Blender Python code line by line, \
-                explaining what each part does and how it contributes to the scene:\n```python\n{init_code}\n```"}
-            ]
-        )
-        code_analysis = code_analysis.choices[0].message.content
-        user_content.append({"type": "text", "text": f"Code Analysis:\n{code_analysis}"})
-        
+        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['generator'][level]})
+        user_content = []
+        # Add initial code (except level-1)
+        if level != 'level1':
+            init_code = open(init_code_path, 'r').read()
+            user_content = [{"type": "text", "text": f"Initial Code:\n```python\n{init_code}\n```"}]
+        else:
+            # add investigator tool description
+            user_content = [{"type": "text", "text": "You have access to a 3D scene investigation tool that allows you to:"}]
+            user_content.append({"type": "text", "text": "1. Focus the camera on specific objects in the scene"})
+            user_content.append({"type": "text", "text": "2. Zoom in/out to get better views"})
+            user_content.append({"type": "text", "text": "3. Move the camera around to explore different angles"})
         # Add initial images
         init_image_path_1 = os.path.join(init_image_path, 'render1.png')
         if os.path.exists(init_image_path_1):
@@ -313,19 +308,17 @@ class GeneratorAgent:
         else:
             # At least we need one initial image
             raise ValueError(f"Initial image {init_image_path_1} does not exist!")
-        
         # Add target images (for mode `blendergym`)
         target_image_path_1 = os.path.join(target_image_path, 'visprompt1.png')
         if os.path.exists(target_image_path_1):
             user_content.append({"type": "text", "text": "Target Image (View 1):"})
             user_content.append({"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path_1)}})
         else:
-            logging.error(f"Target image {target_image_path_1} does not exist!")
-        
+            raise ValueError(f"Target image {target_image_path_1} does not exist!")
         # Add hints 
         user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][task_name.split('-')[0]][task_name.split('-')[1]]}"})
         # Add output format
-        user_content.append({"type": "text", "text": prompts_dict[mode]['format']['generator']})
+        user_content.append({"type": "text", "text": prompts_dict[mode]['format']['generator'][level]})
         # Add all user content
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
@@ -501,62 +494,12 @@ class GeneratorAgent:
             full = full.split("```")[0].strip()
         
         return None, None, full
-    
-    def _get_blendergym_hard_level(self, task_name: str) -> str:
-        """Extract the level from blendergym-hard task name."""
-        # Task name format is expected to be like "task-level1", "task-level2", etc.
-        if "level1" in task_name.lower():
-            return "level1"
-        elif "level2" in task_name.lower():
-            return "level2"
-        elif "level3" in task_name.lower():
-            return "level3"
-        elif "level4" in task_name.lower():
-            return "level4"
-        else:
-            # Default to level1 if no level is specified
-            return "level1"
 
     def _get_tools(self) -> List[Dict]:
         """Get available tools for the generator agent."""
-        if self.mode == "blendergym":
-            # For blendergym mode, provide all tools (original behavior)
-            tools = [{
-                "type": "function",
-                "function": {
-                    "name": "generate_3d_asset",
-                    "description": "Generate and import a 3D asset into the Blender scene using Meshy Text-to-3D API. This tool can create objects based on text descriptions and automatically import them into the current scene.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "description": {
-                                "type": "string", 
-                                "description": "Text description of the 3D asset to generate (e.g., 'a wooden chair', 'a modern table', 'a decorative plant')"
-                            },
-                            "location": {
-                                "type": "string", 
-                                "description": "Position where to place the asset in the scene, format: 'x,y,z' (e.g., '2,0,0')",
-                                "default": "0,0,0"
-                            },
-                            "scale": {
-                                "type": "number", 
-                                "description": "Scale factor for the asset (e.g., 1.0 for normal size, 2.0 for double size)",
-                                "default": 1.0
-                            },
-                            "refine": {
-                                "type": "boolean", 
-                                "description": "Whether to apply texture refinement after initial generation (takes longer but produces better quality)",
-                                "default": True
-                            }
-                        },
-                        "required": ["description"]
-                    }
-                }
-            }]
-            return tools
-        elif self.mode == "blendergym-hard":
+        if self.mode == "blendergym-hard":
             # For blendergym-hard mode, determine tools based on level
-            level = self._get_blendergym_hard_level(self.task_name)
+            level = self.task_name.split('-')[0]
             tools = []
             
             # Define tool definitions
