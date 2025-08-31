@@ -213,6 +213,7 @@ class GeneratorAgent:
         self.mode = mode
         self.model = vision_model
         self.api_key = api_key
+        self.task_name = task_name  # Store task_name for blendergym-hard level detection
         # Support custom OpenAI-compatible base URL
         client_kwargs = {"api_key": self.api_key}
         if api_base_url or os.getenv("OPENAI_BASE_URL"):
@@ -501,9 +502,25 @@ class GeneratorAgent:
         
         return None, None, full
     
+    def _get_blendergym_hard_level(self, task_name: str) -> str:
+        """Extract the level from blendergym-hard task name."""
+        # Task name format is expected to be like "task-level1", "task-level2", etc.
+        if "level1" in task_name.lower():
+            return "level1"
+        elif "level2" in task_name.lower():
+            return "level2"
+        elif "level3" in task_name.lower():
+            return "level3"
+        elif "level4" in task_name.lower():
+            return "level4"
+        else:
+            # Default to level1 if no level is specified
+            return "level1"
+
     def _get_tools(self) -> List[Dict]:
         """Get available tools for the generator agent."""
-        if self.mode == "blendergym" or self.mode == "blendergym-hard":
+        if self.mode == "blendergym":
+            # For blendergym mode, provide all tools (original behavior)
             tools = [{
                 "type": "function",
                 "function": {
@@ -536,25 +553,77 @@ class GeneratorAgent:
                     }
                 }
             }]
+            return tools
+        elif self.mode == "blendergym-hard":
+            # For blendergym-hard mode, determine tools based on level
+            level = self._get_blendergym_hard_level(self.task_name)
+            tools = []
             
-            # Add investigator tools for blendergym-hard
-            if self.mode == "blendergym-hard":
-                tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": "investigate_3d",
-                        "description": "A tool for detailed 3D scene investigation with the following operations: focus, zoom, move.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
-                                "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
-                                "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
+            # Define tool definitions
+            meshy_tool = {
+                "type": "function",
+                "function": {
+                    "name": "generate_3d_asset",
+                    "description": "Generate and import a 3D asset into the Blender scene using Meshy Text-to-3D API. This tool can create objects based on text descriptions and automatically import them into the current scene.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {
+                                "type": "string", 
+                                "description": "Text description of the 3D asset to generate (e.g., 'a wooden chair', 'a modern table', 'a decorative plant')"
                             },
-                            "required": ["operation"]
-                        }
+                            "location": {
+                                "type": "string", 
+                                "description": "Position where to place the asset in the scene, format: 'x,y,z' (e.g., '2,0,0')",
+                                "default": "0,0,0"
+                            },
+                            "scale": {
+                                "type": "number", 
+                                "description": "Scale factor for the asset (e.g., 1.0 for normal size, 2.0 for double size)",
+                                "default": 1.0
+                            },
+                            "refine": {
+                                "type": "boolean", 
+                                "description": "Whether to apply texture refinement after initial generation (takes longer but produces better quality)",
+                                "default": True
+                            }
+                        },
+                        "required": ["description"]
                     }
-                })
+                }
+            }
+            
+            investigator_tool = {
+                "type": "function",
+                "function": {
+                    "name": "investigate_3d",
+                    "description": "A tool for detailed 3D scene investigation with the following operations: focus, zoom, move.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
+                            "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
+                            "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
+                        },
+                        "required": ["operation"]
+                    }
+                }
+            }
+            
+            # Add tools based on level
+            if level == "level1":
+                # Only investigator tool (tool 3)
+                tools.append(investigator_tool)
+            elif level == "level2":
+                # Only blender code executor (tool 2) - no tools needed as it's handled by exec_script
+                pass
+            elif level == "level3":
+                # Blender code executor (tool 2) + investigator tool (tool 3)
+                tools.append(investigator_tool)
+            elif level == "level4":
+                # All tools: meshy (tool 1) + blender code executor (tool 2) + investigator tool (tool 3)
+                tools.append(meshy_tool)
+                tools.append(investigator_tool)
             
             return tools
         else:
@@ -668,18 +737,28 @@ class GeneratorAgent:
             use_tools = self.mode in ["blendergym", "blendergym-hard"] and self._server_connected
             
             if use_tools:
-                # Use tools-enabled generation
-                response = self.client.chat.completions.create(
-                    model=self.model, 
-                    messages=self.memory,
-                    tools=self._get_tools(),
-                    tool_choice="auto"
-                )
+                # Get available tools
+                available_tools = self._get_tools()
+                
+                # Use tools-enabled generation only if tools are available
+                if available_tools:
+                    response = self.client.chat.completions.create(
+                        model=self.model, 
+                        messages=self.memory,
+                        tools=available_tools,
+                        tool_choice="auto"
+                    )
+                else:
+                    # For blendergym-hard level2 (no tools), use standard generation
+                    response = self.client.chat.completions.create(
+                        model=self.model, 
+                        messages=self.memory
+                    )
                 message = response.choices[0].message
                 self.memory.append(message.model_dump())
                 
                 # Handle tool calls
-                if message.tool_calls:
+                if hasattr(message, 'tool_calls') and message.tool_calls:
                     for tool_call in message.tool_calls:
                         tool_response = await self._handle_tool_call(tool_call)
                         self.memory.append({
