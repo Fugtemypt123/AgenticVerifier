@@ -169,8 +169,8 @@ def run_blendergym_task(task_config: Dict, args) -> tuple:
     Returns:
         Tuple of (task_name, success: bool, error_message: str)
     """
-    task_name = task_config['task_dir'].split('/')[-1]
-    level = task_name.split('-')[0]
+    task_name = "/".join(task_config['task_dir'].split('/')[-2:])
+    level = task_config['task_name'].split('-')[0]
     print(f"\n{'='*60}")
     print(f"Running task: {task_name}")
     print(f"{'='*60}")
