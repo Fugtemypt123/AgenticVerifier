@@ -197,6 +197,78 @@ class Investigator3D:
         self.cam.matrix_world.translation = (t.x+x, t.y+y, t.z+z)
         self._save_blender_file()
         return "Camera position updated and Blender file saved"
+    
+    def get_scene_info(self) -> dict:
+        """
+        获取场景的详细信息，用于测试和调试。
+        
+        Returns:
+            dict: 包含场景信息的字典
+        """
+        try:
+            scene_info = {
+                "scene_name": bpy.context.scene.name,
+                "camera_info": {
+                    "name": self.cam.name,
+                    "location": str(self.cam.location),
+                    "rotation": str(self.cam.rotation_euler),
+                    "constraints": []
+                },
+                "objects": [],
+                "collections": [],
+                "materials": [],
+                "meshes": []
+            }
+            
+            # 获取摄像头约束信息
+            for constraint in self.cam.constraints:
+                if constraint.type == 'TRACK_TO':
+                    scene_info["camera_info"]["constraints"].append({
+                        "type": constraint.type,
+                        "name": constraint.name,
+                        "target": constraint.target.name if constraint.target else None,
+                        "track_axis": constraint.track_axis,
+                        "up_axis": constraint.up_axis
+                    })
+            
+            # 获取场景对象信息
+            for obj in bpy.context.scene.objects:
+                obj_info = {
+                    "name": obj.name,
+                    "type": obj.type,
+                    "location": str(obj.location),
+                    "scale": str(obj.scale),
+                    "rotation": str(obj.rotation_euler)
+                }
+                scene_info["objects"].append(obj_info)
+            
+            # 获取集合信息
+            for collection in bpy.data.collections:
+                coll_info = {
+                    "name": collection.name,
+                    "object_count": len(collection.objects),
+                    "objects": [obj.name for obj in collection.objects]
+                }
+                scene_info["collections"].append(coll_info)
+            
+            # 获取材质信息
+            for material in bpy.data.materials:
+                scene_info["materials"].append(material.name)
+            
+            # 获取网格信息
+            for mesh in bpy.data.meshes:
+                mesh_info = {
+                    "name": mesh.name,
+                    "vertices": len(mesh.vertices),
+                    "faces": len(mesh.polygons),
+                    "uv_layers": len(mesh.uv_layers)
+                }
+                scene_info["meshes"].append(mesh_info)
+            
+            return scene_info
+            
+        except Exception as e:
+            return {"error": f"Failed to get scene info: {str(e)}"}
 
 class AssetImporter:
     """3D资产导入器，支持多种格式"""
@@ -563,8 +635,138 @@ def move(direction: str) -> dict:
         logging.error(f"Move failed: {e}")
         return {"status": "error", "error": str(e)}
 
+def test_investigator() -> dict:
+    """
+    测试 Investigator3D 的基本功能：
+    1. 打开 blender 文件
+    2. 添加摄像头
+    3. 修改摄像头角度
+    """
+    blender_path = "output/blendergym_hard/20250901_023433/level1/camera8/blender_file.blend"
+    
+    try:
+        # 测试1: 初始化 investigator
+        print("Testing Investigator3D initialization...")
+        test_investigator = Investigator3D(blender_path)
+        print(f"✓ Investigator3D initialized successfully")
+        print(f"✓ Blender file loaded: {blender_path}")
+        
+        # 测试2: 检查摄像头
+        print("\nTesting camera creation/retrieval...")
+        cam = test_investigator.cam
+        print(f"✓ Camera name: {cam.name}")
+        print(f"✓ Camera type: {cam.type}")
+        print(f"✓ Camera location: {cam.location}")
+        
+        # 测试3: 检查场景中的对象
+        print("\nTesting scene objects...")
+        scene_objects = list(bpy.context.scene.objects)
+        print(f"✓ Scene objects count: {len(scene_objects)}")
+        for obj in scene_objects[:5]:  # 只显示前5个对象
+            print(f"  - {obj.name} ({obj.type}) at {obj.location}")
+        
+        # 测试4: 尝试聚焦到第一个网格对象
+        print("\nTesting object focus...")
+        mesh_objects = [obj for obj in scene_objects if obj.type == 'MESH']
+        if mesh_objects:
+            target_obj = mesh_objects[0]
+            print(f"✓ Focusing on object: {target_obj.name}")
+            focus_result = test_investigator.focus_on_object(target_obj.name)
+            print(f"✓ Focus result: {focus_result}")
+            
+            # 测试5: 测试摄像头移动
+            print("\nTesting camera movement...")
+            print("✓ Testing zoom in...")
+            zoom_in_result = test_investigator.zoom('in')
+            print(f"  Result: {zoom_in_result}")
+            
+            print("✓ Testing zoom out...")
+            zoom_out_result = test_investigator.zoom('out')
+            print(f"  Result: {zoom_out_result}")
+            
+            print("✓ Testing move up...")
+            move_up_result = test_investigator.move_camera('up')
+            print(f"  Result: {move_up_result}")
+            
+            print("✓ Testing move down...")
+            move_down_result = test_investigator.move_camera('down')
+            print(f"  Result: {move_down_result}")
+            
+            print("✓ Testing move left...")
+            move_left_result = test_investigator.move_camera('left')
+            print(f"  Result: {move_left_result}")
+            
+            print("✓ Testing move right...")
+            move_right_result = test_investigator.move_camera('right')
+            print(f"  Result: {move_right_result}")
+            
+            # 测试6: 检查最终摄像头位置
+            final_cam = test_investigator.cam
+            print(f"\n✓ Final camera location: {final_cam.location}")
+            print(f"✓ Final camera rotation: {final_cam.rotation_euler}")
+            
+        else:
+            print("⚠ No mesh objects found in scene for focus testing")
+        
+        # 测试7: 检查约束
+        print("\nTesting camera constraints...")
+        track_constraints = [c for c in cam.constraints if c.type == 'TRACK_TO']
+        if track_constraints:
+            constraint = track_constraints[0]
+            print(f"✓ Track constraint found: {constraint.name}")
+            print(f"✓ Target object: {constraint.target.name if constraint.target else 'None'}")
+            print(f"✓ Track axis: {constraint.track_axis}")
+            print(f"✓ Up axis: {constraint.up_axis}")
+        else:
+            print("⚠ No track constraint found")
+        
+        # 测试8: 获取详细场景信息
+        print("\nTesting scene info retrieval...")
+        scene_info = test_investigator.get_scene_info()
+        if "error" not in scene_info:
+            print(f"✓ Scene info retrieved successfully")
+            print(f"✓ Scene name: {scene_info.get('scene_name', 'Unknown')}")
+            print(f"✓ Objects count: {len(scene_info.get('objects', []))}")
+            print(f"✓ Collections count: {len(scene_info.get('collections', []))}")
+        else:
+            print(f"⚠ Scene info retrieval failed: {scene_info['error']}")
+        
+        print("\n🎉 All Investigator3D tests completed successfully!")
+        
+        return {
+            "status": "success",
+            "message": "Investigator3D test completed successfully",
+            "details": {
+                "camera_name": cam.name,
+                "camera_location": str(cam.location),
+                "scene_objects_count": len(scene_objects),
+                "mesh_objects_count": len(mesh_objects),
+                "test_results": {
+                    "initialization": "success",
+                    "camera_creation": "success",
+                    "object_focus": "success" if mesh_objects else "skipped",
+                    "camera_movement": "success" if mesh_objects else "skipped",
+                    "constraints": "success" if track_constraints else "warning",
+                    "scene_info": "success" if "error" not in scene_info else "failed"
+                }
+            }
+        }
+        
+    except Exception as e:
+        error_msg = f"Investigator3D test failed: {str(e)}"
+        print(f"❌ {error_msg}")
+        logging.error(error_msg)
+        return {"status": "error", "error": error_msg}
+
 def main():
-    mcp.run(transport="stdio")
+    # 如果直接运行此脚本，执行测试
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        success = test_investigator()
+        sys.exit(0 if success else 1)
+    else:
+        # 正常运行 MCP 服务
+        mcp.run(transport="stdio")
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,5 @@
 blendergym_hard_hints = {
-    "level1": ["Adjust the camera position so that the viewing angle is consistent with the target image."] * 9,
+    "level1": ["Adjust the camera position so that the viewing angle is consistent with the target image.\nNOTE: Always call 'focus' operation first before calling 'zoom' or 'move' operation. Since you need to focus on the object you want to modify, you should call 'focus' operation first."] * 9,
     "level2": 
         ["First adjust the room brightness, then adjust the size of the character's belly so that it looks like the target image."] * 3 + 
         ["First adjust the brightness of the room, then adjust the position of the basketball so that it looks the same as the target image."] * 3 + 

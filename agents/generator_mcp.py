@@ -32,7 +32,8 @@ class GeneratorAgent:
                  blender_server_path: Optional[str] = None,
                  slides_server_path: Optional[str] = None,
                  output_dir: Optional[str] = None,
-                 api_base_url: Optional[str] = None):
+                 api_base_url: Optional[str] = None,
+                 blender_file_path: Optional[str] = None):
         """
         Initialize the Generator Agent.
         """
@@ -76,7 +77,7 @@ class GeneratorAgent:
         elif mode == "autopresent":
             self.memory = self.prompt_builder.build_autopresent_generator_prompt(mode, init_code_path, init_image_path, target_description)
         elif mode == "blendergym-hard":
-            self.memory = self.prompt_builder.build_blendergym_hard_generator_prompt(mode, task_name, init_code_path, init_image_path, target_image_path)
+            self.memory = self.prompt_builder.build_blendergym_hard_generator_prompt(mode, task_name, init_code_path, init_image_path, target_image_path, blender_file_path)
         else:
             raise NotImplementedError("Mode not implemented")
     
@@ -146,10 +147,14 @@ class GeneratorAgent:
                 )
                 message = response.choices[0].message
                 # Convert message to proper format for memory
+                assistant_content = message.content if isinstance(message.content, str) else (message.content or "")
                 message_dict = {
                     "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": [
+                    "content": assistant_content,
+                }
+                # Only include tool_calls if there are any (avoid empty array which causes API error)
+                if getattr(message, "tool_calls", None):
+                    message_dict["tool_calls"] = [
                         {
                             "id": tool_call.id,
                             "type": "function",
@@ -158,9 +163,8 @@ class GeneratorAgent:
                                 "arguments": tool_call.function.arguments
                             }
                         }
-                        for tool_call in (message.tool_calls or [])
+                        for tool_call in message.tool_calls
                     ]
-                }
                 self.memory.append(message_dict)
                 
                 # Handle tool calls
@@ -306,7 +310,8 @@ def main():
                 blender_server_path=blender_server_path,
                 slides_server_path=slides_server_path,
                 output_dir=output_dir,
-                api_base_url=api_base_url
+                api_base_url=api_base_url,
+                blender_file_path=blender_file,
             )
             agent_holder['agent'] = agent
             
