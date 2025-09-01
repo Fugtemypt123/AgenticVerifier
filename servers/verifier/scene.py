@@ -117,10 +117,10 @@ class Investigator3D:
         bpy.ops.object.camera_add()
         cam = bpy.context.active_object
         cam.name = "InvestigatorCamera"
-        # optional: copy from existing Camera2
-        if 'Camera2' in bpy.data.objects:
-            cam.matrix_world.translation = bpy.data.objects['Camera2'].matrix_world.translation.copy()
-            print("Copy from Camera2!")
+        # optional: copy from existing Camera1
+        if 'Camera1' in bpy.data.objects:
+            cam.matrix_world.translation = bpy.data.objects['Camera1'].matrix_world.translation.copy()
+            print("Copy from Camera1!")
         return cam
 
     def _render(self):
@@ -131,12 +131,12 @@ class Investigator3D:
         out = bpy.context.scene.render.filepath
         self.count += 1
 
-        # Save the blender file after each operation
-        try:
-            bpy.ops.wm.save_mainfile(filepath=self.blender_path)
-            print(f"Blender file saved to: {self.blender_path}")
-        except Exception as e:
-            print(f"Warning: Failed to save blender file: {e}")
+        # Do not save the blender file after each operation
+        # try:
+        #     bpy.ops.wm.save_mainfile(filepath=self.blender_path)
+        #     print(f"Blender file saved to: {self.blender_path}")
+        # except Exception as e:
+        #     print(f"Warning: Failed to save blender file: {e}")
 
         return out
 

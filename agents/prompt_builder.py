@@ -38,32 +38,30 @@ class PromptBuilder:
             scene_info = []
             scene_info.append("Scene Information:")
             scene_info.append(f"Scene name: {bpy.context.scene.name}")
-            scene_info.append(f"Collection count: {len(bpy.data.collections)}")
+            # scene_info.append(f"Collection count: {len(bpy.data.collections)}")
             
             # List all objects in the scene
             scene_info.append("\nObjects in scene:")
             for obj in bpy.context.scene.objects:
-                obj_type = obj.type
                 obj_name = obj.name
-                obj_location = f"({obj.location.x:.2f}, {obj.location.y:.2f}, {obj.location.z:.2f})"
-                scene_info.append(f"- {obj_name} (Type: {obj_type}, Location: {obj_location})")
+                scene_info.append(f"- Name: {obj_name}")
             
-            # List collections
-            scene_info.append("\nCollections:")
-            for collection in bpy.data.collections:
-                scene_info.append(f"- {collection.name}: {len(collection.objects)} objects")
-                for obj in collection.objects:
-                    scene_info.append(f"  - {obj.name} ({obj.type})")
+            # # List collections
+            # scene_info.append("\nCollections:")
+            # for collection in bpy.data.collections:
+            #     scene_info.append(f"- {collection.name}: {len(collection.objects)} objects")
+            #     for obj in collection.objects:
+            #         scene_info.append(f"  - {obj.name} ({obj.type})")
             
-            # List materials
-            scene_info.append("\nMaterials:")
-            for material in bpy.data.materials:
-                scene_info.append(f"- {material.name}")
+            # # List materials
+            # scene_info.append("\nMaterials:")
+            # for material in bpy.data.materials:
+            #     scene_info.append(f"- {material.name}")
             
-            # List meshes
-            scene_info.append("\nMeshes:")
-            for mesh in bpy.data.meshes:
-                scene_info.append(f"- {mesh.name}: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
+            # # List meshes
+            # scene_info.append("\nMeshes:")
+            # for mesh in bpy.data.meshes:
+            #     scene_info.append(f"- {mesh.name}: {len(mesh.vertices)} vertices, {len(mesh.polygons)} faces")
             
             return "\n".join(scene_info)
             
@@ -281,7 +279,8 @@ class PromptBuilder:
     def build_blendergym_hard_verifier_prompt(self, 
                                             mode: str,
                                             task_name: str,
-                                            target_image_path: str) -> List[Dict]:
+                                            target_image_path: str,
+                                            blender_file_path: str) -> List[Dict]:
         """Build the system prompt for the verifier for blendergym-hard mode."""
         level = task_name.split('-')[0]
         idx = int(task_name.split('-')[1])
@@ -289,6 +288,10 @@ class PromptBuilder:
         # System prompt
         full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['verifier'][level]})
         user_content = []
+        # Add scene information if blender file path is provided
+        if blender_file_path and os.path.exists(blender_file_path):
+            scene_info = self.get_scene_info(blender_file_path)
+            user_content.append({"type": "text", "text": f"Scene Information:\n{scene_info}"})
         # Add target image/description
         if level == 'level1':
             target_image_path = os.path.join(target_image_path, 'style1.png')

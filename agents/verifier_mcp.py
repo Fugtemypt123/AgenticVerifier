@@ -24,7 +24,8 @@ class VerifierAgent:
                  target_description: Optional[str] = None,
                  image_server_path: Optional[str] = None,
                  scene_server_path: Optional[str] = None,
-                 api_base_url: Optional[str] = None):
+                 api_base_url: Optional[str] = None,
+                 blender_file_path: Optional[str] = None):
         self.mode = mode
         self.vision_model = vision_model
         self.api_key = api_key
@@ -64,7 +65,7 @@ class VerifierAgent:
         elif mode == "autopresent":
             self.memory = self.prompt_builder.build_autopresent_verifier_prompt(mode, target_description)
         elif mode == "blendergym-hard":
-            self.memory = self.prompt_builder.build_blendergym_hard_verifier_prompt(mode, task_name, target_image_path)
+            self.memory = self.prompt_builder.build_blendergym_hard_verifier_prompt(mode, task_name, target_image_path, blender_file_path)
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -133,7 +134,26 @@ class VerifierAgent:
             self.memory.append(verify_message)
         elif self.mode == "blendergym-hard":
             level = self.task_name.split('-')[0]
-            verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current state:\nCode: {code}"}]}
+            verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the current state:\n"}]}
+            if os.path.isdir(render_path):
+                view1_path = os.path.join(render_path, 'render1.png')
+                view2_path = os.path.join(render_path, 'render2.png')
+            else:
+                view1_path = render_path
+                view2_path = None
+            scene_content = []
+            if os.path.exists(view1_path):
+                self.current_image_path = os.path.abspath(view1_path)
+                scene_content.extend([
+                    {"type": "text", "text": f"Current scene (View 1):"},
+                    {"type": "image_url", "image_url": {"url": self.prompt_builder._get_image_base64(view1_path)}}
+                ])
+            if os.path.exists(view2_path):
+                scene_content.extend([
+                    {"type": "text", "text": f"Current scene (View 2):"},
+                    {"type": "image_url", "image_url": {"url": self.prompt_builder._get_image_base64(view2_path)}}
+                ])
+            verify_message["content"].extend(scene_content)
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier'][level]})
             self.memory.append(verify_message)
         else:
@@ -275,7 +295,8 @@ def main():
                 target_description=target_description,
                 image_server_path=image_server_path,
                 scene_server_path=scene_server_path,
-                api_base_url=api_base_url
+                api_base_url=api_base_url,
+                blender_file_path=blender_save
             )
             agent_holder['agent'] = agent
             # Initialize server executor
