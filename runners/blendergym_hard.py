@@ -358,9 +358,9 @@ def main():
         print(f"Found {len(tasks)} tasks")
         
         # Filter tasks if specific task specified
-        if args.task != 'all':
-            tasks = [t for t in tasks if t["task_name"] == args.task]
-            print(f"Filtered to {len(tasks)} tasks for task: {args.task}")
+        # if args.task != 'all':
+        #     tasks = [t for t in tasks if t["task_name"] == args.task]
+        #     print(f"Filtered to {len(tasks)} tasks for task: {args.task}")
         
         if not tasks:
             print("No tasks match the specified filters!")
@@ -381,9 +381,7 @@ def main():
     # Save task list for reference
     with open(os.path.join(args.output_dir, "tasks.json"), "w") as f:
         json.dump(tasks, f, indent=2)
-        
-    tasks = tasks[:1]
-    
+
     # Run tasks
     start_time = time.time()
     
