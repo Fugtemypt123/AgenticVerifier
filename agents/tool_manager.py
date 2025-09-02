@@ -82,7 +82,7 @@ class ToolManager:
             return []
     
     @staticmethod
-    def get_verifier_tools(mode: str) -> List[Dict]:
+    def get_verifier_tools(mode: str, task_name: str) -> List[Dict]:
         """Get available tools for the verifier agent based on mode."""
         if mode == "blendergym":
             return [{
@@ -93,21 +93,25 @@ class ToolManager:
                 }
             }]
         elif mode == "blendergym-hard":
-            return [{
-                "type": "function",
-                "function": {
-                    "name": "investigate_3d",
-                    "description": "A tool for detailed 3D scene investigation with the following operations: focus, zoom, move.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
-                            "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
-                            "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
-                        },
-                        "required": ["operation"]
+            level = task_name.split('-')[0]
+            if level != "level1" and level != "level2":
+                return [{
+                    "type": "function",
+                    "function": {
+                        "name": "investigate_3d",
+                        "description": "A tool for detailed 3D scene investigation with the following operations: focus, zoom, move.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "operation": {"type": "string", "enum": ["focus", "zoom", "move"], "description": "The operation to perform on the 3D scene."},
+                                "object_name": {"type": "string", "description": "The name of the object to focus on (only for focus operation)."},
+                                "direction": {"type": "string", "enum": ["in", "out", "up", "down", "left", "right"], "description": "The direction to move the camera (only for zoom and move operation)."}
+                            },
+                            "required": ["operation"]
+                        }
                     }
-                }
-            }]
+                }]
+            else:
+                return []
         else:
             return []
