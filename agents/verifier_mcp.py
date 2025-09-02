@@ -193,29 +193,31 @@ class VerifierAgent:
                 
                 # Handle tool calls
                 if hasattr(message, 'tool_calls') and message.tool_calls:
+                    # Collect tool messages first to ensure they are appended contiguously
+                    pending_tool_messages = []
+                    pending_followup_messages = []
                     for tool_call in message.tool_calls:
                         tool_response = await self._handle_tool_call(tool_call)
                         # Ensure tool response is a string
                         content = tool_response.get('text', str(tool_response))
                         if not isinstance(content, str):
                             content = json.dumps(content)
-                        
-                        self.memory.append({
+                        # Queue tool message (must immediately follow assistant with tool_calls)
+                        pending_tool_messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "name": tool_call.function.name,
                             "content": content
                         })
-                        
+                        # Queue any additional user messages (e.g., images) AFTER all tool messages
                         if tool_response.get('image'):
-                            self.memory.append({
+                            pending_followup_messages.append({
                                 "role": "user",
                                 "content": [
                                     {"type": "text", "text": "Generated image:"},
                                     {"type": "image_url", "image_url": {"url": self.prompt_builder._get_image_base64(tool_response['image'])}}
                                 ]
-                            })
-                    
+                            })   
                     # Continue verification after tool calls
                     continue_response = self.client.chat.completions.create(
                         model=self.vision_model,
