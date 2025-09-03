@@ -190,6 +190,7 @@ class VerifierAgent:
                                     {"type": "image_url", "image_url": {"url": self.prompt_builder._get_image_base64(tool_response['image'])}}
                                 ]
                             })
+                        result = {"status": "continue", "output": message.content if message.content else "Nothing to say"}
                 else:
                     # No tool calls, check if verification is complete
                     if "OK" in message.content and "Code Localization" not in message.content:
