@@ -5,34 +5,21 @@ This script evaluates the quality of generated images against task descriptions 
 """
 
 import os
-import sys
 import argparse
 import json
 import base64
-from PIL import Image
 from tqdm import tqdm
-import numpy as np
-import torch
-from torchvision.transforms import Compose, Resize, CenterCrop, ToTensor, Normalize
-from transformers import CLIPProcessor, CLIPModel
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import openai
-openai.api_key = os.environ["OPENAI_API_KEY"]
-client = openai.OpenAI()
+from openai import OpenAI
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
 # Task instance counts for different task types
 TASK_INSTANCE_COUNT_DICT = {
-    'geometry': 45,
-    'material': 40,
-    'blendshape': 75,
-    'placement': 40,
-    'lighting': 40
+    'level1': 9,
+    'level2': 9,
+    'level3': 9,
+    'level4': 3
 }
-
-# Global CLIP model/processor to share across threads
-GLOBAL_CLIP_MODEL = None
-GLOBAL_CLIP_PROCESSOR = None
 
 # Evaluation criteria for different aspects
 EVALUATION_CRITERIA = {
@@ -70,24 +57,13 @@ First, respond with a score; Then, provide your justification for the score in n
 Only evaluate the image based on the specified criteria, and no other aspects. Give scores across the full spectrum (0-5) instead of only good ones (3-5).
 """
 
-
-def ensure_clip_loaded():
-    """
-    Lazily load the global CLIP model and processor once per process.
-    """
-    global GLOBAL_CLIP_MODEL, GLOBAL_CLIP_PROCESSOR
-    if GLOBAL_CLIP_MODEL is None or GLOBAL_CLIP_PROCESSOR is None:
-        GLOBAL_CLIP_MODEL = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        GLOBAL_CLIP_PROCESSOR = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-
-
 def encode_image(image_path):
     """Encode image to base64 for GPT API."""
     with open(image_path, 'rb') as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 
-def evaluate_image_with_gpt(image_path: str, target_image_path: str, task_description: str, criteria_name: str, criteria_dict: dict, model_name: str = "gpt-4o", max_tokens: int = 200):
+def evaluate_image_with_gpt(image_path: str, target_image_path: str, task_description: str, criteria_name: str, criteria_dict: dict, model_name: str = "gpt-4o"):
     """
     Evaluate a single image using GPT based on specific criteria.
     
@@ -107,8 +83,8 @@ def evaluate_image_with_gpt(image_path: str, target_image_path: str, task_descri
         # Encode image
         image_base64 = encode_image(image_path)
         target_image_base64 = encode_image(target_image_path)
-        image_url = f"data:image/jpeg;base64,{image_base64}"
-        target_image_url = f"data:image/jpeg;base64,{target_image_base64}"
+        image_url = f"data:image/png;base64,{image_base64}"
+        target_image_url = f"data:image/png;base64,{target_image_base64}"
         # Create prompt
         prompt = INSTRUCTION_TEMPLATE.format(
             criteria=criteria_dict["criteria"],
@@ -127,15 +103,9 @@ def evaluate_image_with_gpt(image_path: str, target_image_path: str, task_descri
                 {"type": "image_url", "image_url": {"url": image_url}},
             ],
         }]
-        
+             
         # Get response from GPT
-        response = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=0.0,
-        )
-        
+        response = client.chat.completions.create(model=model_name, messages=messages)
         response_text = response.choices[0].message.content.strip()
         
         # Parse response
@@ -170,14 +140,13 @@ def load_task_description(task_dir: str) -> str:
     Returns:
         str: Task description text
     """
-    task_file = os.path.join(task_dir, "task.txt")
-    if os.path.exists(task_file):
-        with open(task_file, 'r', encoding='utf-8') as f:
+    if os.path.exists(task_dir):
+        with open(task_dir, 'r', encoding='utf-8') as f:
             return f.read().strip()
     return ""
 
 
-def process_task_instance_reference_free(output_base_dir: str, task_dir: str, model_name: str = "gpt-4o", max_tokens: int = 200):
+def process_task_instance_reference_free(output_base_dir: str, task_dir: str, model_name: str = "gpt-4o"):
     """
     Process a single task instance directory and compute reference-free metrics across rounds.
 
@@ -191,7 +160,9 @@ def process_task_instance_reference_free(output_base_dir: str, task_dir: str, mo
         return task_dir, {}, {}
 
     # Load task description
-    task_description = load_task_description(task_instance_dir)
+    gt_task_dir = f"data/blendergym_hard/{task_dir}/task.txt"
+    print(f"Loading task description from {gt_task_dir}")
+    task_description = load_task_description(gt_task_dir)
     if not task_description:
         print(f"Warning: No task description found for {task_dir}")
         task_description = "Task description not available"
@@ -237,8 +208,7 @@ def process_task_instance_reference_free(output_base_dir: str, task_dir: str, mo
                     task_description, 
                     criteria_name, 
                     criteria_dict,
-                    model_name,
-                    max_tokens
+                    model_name
                 )
                 render_scores[criteria_name] = gpt_result
             
@@ -309,9 +279,7 @@ def main():
                        help='Output directory for evaluation results (default: output/blendergym/{test_id}/_reference_free_evaluation)')
     parser.add_argument('--model_name', type=str, default="gpt-4o", 
                        help='GPT model to use for evaluation')
-    parser.add_argument('--max_tokens', type=int, default=200,
-                       help='Maximum tokens for GPT responses')
-    parser.add_argument('--max_workers', type=int, default=4,
+    parser.add_argument('--max_workers', type=int, default=9,
                        help='Maximum number of parallel workers')
     
     args = parser.parse_args()
@@ -353,9 +321,6 @@ def main():
     scores_across_tasks = {}
     intermediates = {}
     
-    # Ensure CLIP is loaded once (shared by threads)
-    ensure_clip_loaded()
-
     for task_type, task_instances in tasks_by_type.items():
         print(f"\nProcessing task type: {task_type}")
 
@@ -371,7 +336,7 @@ def main():
         max_workers = min(args.max_workers, (os.cpu_count() or 4))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
-                executor.submit(process_task_instance_reference_free, output_base_dir, task_dir, args.model_name, args.max_tokens)
+                executor.submit(process_task_instance_reference_free, output_base_dir, task_dir, args.model_name)
                 for task_dir, _ in task_instances
             ]
 
