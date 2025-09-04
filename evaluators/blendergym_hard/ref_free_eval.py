@@ -54,11 +54,16 @@ EVALUATION_CRITERIA = {
     }
 }
 
-INSTRUCTION_TEMPLATE = """You are evaluating a 3D scene image generated based on a specific task description. Please evaluate the image based on the following criteria:
+INSTRUCTION_TEMPLATE = """You are evaluating a 3D scene image generated based on a specific task description. You will be shown a TARGET image (may be style-transferred/noisy) and a GENERATED image. Compare them with respect to the task, prioritizing geometric structure, spatial layout, object identity/pose/placement, and lighting intent over stylistic differences (colors, textures, style effects).
 
 {criteria}
 
 Task Description: {task_description}
+
+Instructions:
+- Use the TARGET image as a visual reference for intended scene layout and camera/view configuration.
+- Ignore style-transfer artifacts (e.g., color grading, texture stylization, artistic filters) when they do not affect task objectives.
+- Focus your judgment on whether the GENERATED image meets the task criteria relative to the TARGET reference.
 
 Give an integer score between 0 - {scale}, where higher scores mean the criteria is better met.
 First, respond with a score; Then, provide your justification for the score in natural language sentences. Your response should look like this: '4. The cabinet is correctly positioned and the plant is visible in the mirror as required.'
@@ -82,12 +87,13 @@ def encode_image(image_path):
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 
-def evaluate_image_with_gpt(image_path: str, task_description: str, criteria_name: str, criteria_dict: dict, model_name: str = "gpt-4o", max_tokens: int = 200):
+def evaluate_image_with_gpt(image_path: str, target_image_path: str, task_description: str, criteria_name: str, criteria_dict: dict, model_name: str = "gpt-4o", max_tokens: int = 200):
     """
     Evaluate a single image using GPT based on specific criteria.
     
     Args:
         image_path: Path to the image to evaluate
+        target_image_path: Path to the target image
         task_description: Text description of the task
         criteria_name: Name of the evaluation criteria
         criteria_dict: Dictionary containing criteria and scale
@@ -100,8 +106,9 @@ def evaluate_image_with_gpt(image_path: str, task_description: str, criteria_nam
     try:
         # Encode image
         image_base64 = encode_image(image_path)
+        target_image_base64 = encode_image(target_image_path)
         image_url = f"data:image/jpeg;base64,{image_base64}"
-        
+        target_image_url = f"data:image/jpeg;base64,{target_image_base64}"
         # Create prompt
         prompt = INSTRUCTION_TEMPLATE.format(
             criteria=criteria_dict["criteria"],
@@ -114,6 +121,9 @@ def evaluate_image_with_gpt(image_path: str, task_description: str, criteria_nam
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt},
+                {"type": "text", "text": "Target image:"},
+                {"type": "image_url", "image_url": {"url": target_image_url}},
+                {"type": "text", "text": "Generated image:"},
                 {"type": "image_url", "image_url": {"url": image_url}},
             ],
         }]
@@ -148,67 +158,6 @@ def evaluate_image_with_gpt(image_path: str, task_description: str, criteria_nam
             "justification": f"Error during evaluation: {str(e)}",
             "criteria": criteria_name
         }
-
-
-def clip_similarity(image1, image2):
-    """
-    Compute the CLIP similarity between two PIL images.
-
-    Args:
-    image1 (PIL.Image): The first input image.
-    image2 (PIL.Image): The second input image.
-
-    Returns:
-    float: The CLIP similarity between the two images.
-    """
-    if image1.size != image2.size:
-        image2 = image2.resize(image1.size)
-
-    # Ensure global model is initialized
-    ensure_clip_loaded()
-
-    # Preprocess the images
-    images = [image1, image2]
-    inputs = GLOBAL_CLIP_PROCESSOR(images=images, return_tensors="pt")
-
-    # Compute the features for the images
-    with torch.no_grad():
-        features = GLOBAL_CLIP_MODEL.get_image_features(**inputs)
-
-    # Compute the cosine similarity between the image features
-    sim = torch.nn.functional.cosine_similarity(features[0], features[1], dim=-1)
-
-    return sim.item()
-
-
-def photometric_loss(image1: Image.Image, image2: Image.Image) -> float:
-    """
-    Compute the photometric loss between two PIL images.
-
-    Args:
-    image1 (PIL.Image): The first input image.
-    image2 (PIL.Image): The second input image.
-
-    Returns:
-    float: The photometric loss between the two images.
-    """
-    if image1.size != image2.size:
-        image2 = image2.resize(image1.size)
-    
-    # Convert images to numpy arrays
-    img1_array = np.array(image1)[:, :, :3]
-    img2_array = np.array(image2)[:, :, :3]
-
-    # Normalize images to [0, 1]
-    img1_norm = img1_array.astype(np.float32) / 255.0
-    img2_norm = img2_array.astype(np.float32) / 255.0
-
-    # Compute the squared difference between the normalized images
-    diff = np.square(img1_norm - img2_norm)
-
-    # Compute the mean squared error
-    mse = np.mean(diff)
-    return mse
 
 
 def load_task_description(task_dir: str) -> str:
@@ -247,6 +196,10 @@ def process_task_instance_reference_free(output_base_dir: str, task_dir: str, mo
         print(f"Warning: No task description found for {task_dir}")
         task_description = "Task description not available"
 
+    gt_renders_dir = f"data/blendergym_hard/{task_dir}/renders/goal"
+    if not os.path.exists(gt_renders_dir):
+        return task_dir, {}, None, None
+
     task_instance_scores = {}
 
     # Get all round directories (1, 2, 3, 4, etc.)
@@ -265,30 +218,36 @@ def process_task_instance_reference_free(output_base_dir: str, task_dir: str, mo
         round_path = os.path.join(renders_dir, round_dir)
         task_instance_scores[round_dir] = {}
 
-        # Evaluate each render in the round
-        for render_name in ["render1.png", "render2.png"]:
-            render_path = os.path.join(round_path, render_name)
-            if os.path.exists(render_path):
-                render_scores = {}
-                
-                # Evaluate with GPT for each criteria
-                for criteria_name, criteria_dict in EVALUATION_CRITERIA.items():
-                    gpt_result = evaluate_image_with_gpt(
-                        render_path, 
-                        task_description, 
-                        criteria_name, 
-                        criteria_dict,
-                        model_name,
-                        max_tokens
-                    )
-                    render_scores[criteria_name] = gpt_result
-                
-                # Calculate average score across all criteria
-                scores = [gpt_result["score"] for gpt_result in render_scores.values()]
-                avg_score = sum(scores) / len(scores) if scores else 0.0
-                
-                render_scores["average_score"] = avg_score
-                task_instance_scores[round_dir][render_name.replace(".png", "")] = render_scores
+        render_path = os.path.join(round_path, 'render1.png')
+        
+        if 'level1' in task_dir:
+            render_name = 'style1.png'
+        else:
+            render_name = 'visprompt1.png'
+        target_image_path = os.path.join(gt_renders_dir, render_name)
+
+        if os.path.exists(render_path):
+            render_scores = {}
+            
+            # Evaluate with GPT for each criteria
+            for criteria_name, criteria_dict in EVALUATION_CRITERIA.items():
+                gpt_result = evaluate_image_with_gpt(
+                    render_path, 
+                    target_image_path,
+                    task_description, 
+                    criteria_name, 
+                    criteria_dict,
+                    model_name,
+                    max_tokens
+                )
+                render_scores[criteria_name] = gpt_result
+            
+            # Calculate average score across all criteria
+            scores = [gpt_result["score"] for gpt_result in render_scores.values()]
+            avg_score = sum(scores) / len(scores) if scores else 0.0
+            
+            render_scores["average_score"] = avg_score
+            task_instance_scores[round_dir][render_name.replace(".png", "")] = render_scores
 
         # Calculate round average
         round_scores = []
@@ -331,10 +290,12 @@ def extract_task_type_and_number(task_dir_name):
     Returns:
         tuple: (task_type, task_number) or (None, None) if invalid
     """
+    level_dir_name = task_dir_name.split("/")[0]
+    task_name = task_dir_name.split("/")[1]
     for task_type in TASK_INSTANCE_COUNT_DICT.keys():
-        if task_dir_name.startswith(task_type):
+        if level_dir_name == task_type:
             try:
-                task_number = int(task_dir_name[len(task_type):])
+                task_number = int(task_name[-1])
                 return task_type, task_number
             except ValueError:
                 continue
@@ -357,21 +318,25 @@ def main():
     test_id = args.test_id
     
     # Set up paths
-    output_base_dir = f"output/blendergym/{test_id}"
+    output_base_dir = f"output/blendergym_hard/{test_id}"
     if not os.path.exists(output_base_dir):
         raise ValueError(f"Output directory {output_base_dir} does not exist.")
     
     if args.output_dir:
         eval_output_dir = args.output_dir
     else:
-        eval_output_dir = os.path.join(output_base_dir, "_reference_free_evaluation")
+        eval_output_dir = os.path.join(output_base_dir, "_evaluation")
     
     os.makedirs(eval_output_dir, exist_ok=True)
     
     # Get all task directories
-    task_dirs = [d for d in os.listdir(output_base_dir) 
-                if os.path.isdir(os.path.join(output_base_dir, d)) and d != "evaluation"]
-    
+    task_dirs = []
+    for level_dir in os.listdir(output_base_dir):
+        if os.path.isdir(os.path.join(output_base_dir, level_dir)) and level_dir != "_evaluation":
+            for task_dir in os.listdir(os.path.join(output_base_dir, level_dir)):
+                if os.path.isdir(os.path.join(output_base_dir, level_dir, task_dir)):
+                    task_dirs.append(os.path.join(level_dir, task_dir))
+                    
     print(f"Found {len(task_dirs)} task directories in {output_base_dir}")
     
     # Group tasks by type
