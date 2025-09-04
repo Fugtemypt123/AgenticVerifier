@@ -162,13 +162,16 @@ class VerifierAgent:
         # start verification
         try:
             for i in range(self.max_rounds):
-                response = self.client.chat.completions.create(
-                    model=self.vision_model,
-                    messages=self.memory,
-                    tools=self._get_tools(),
-                    tool_choice="auto",
-                    parallel_tool_calls=False
-                )
+                chat_args = {
+                    "model": self.vision_model,
+                    "messages": self.memory,
+                    "tools": self._get_tools(),
+                    "tool_choice": "auto",
+                    # "parallel_tool_calls": False
+                }
+                if self.vision_model == 'gpt-4o':
+                    chat_args['parallel_tool_calls'] = False
+                response = self.client.chat.completions.create(**chat_args)
                 message = response.choices[0].message
                 
                 self.memory.append(message.model_dump())
