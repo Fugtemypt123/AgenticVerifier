@@ -106,7 +106,7 @@ class PromptBuilder:
             raise ValueError(f"Target image {target_image_path} does not exist!") 
         
         # Add hints 
-        user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][level][idx]}"})
+        user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][level][idx-1]}"})
         # Add output format
         user_content.append({"type": "text", "text": prompts_dict[mode]['format']['generator'][level]})
         # Add all user content
@@ -249,7 +249,7 @@ class PromptBuilder:
             ])
         else:
             raise ValueError(f"Target image {target_image_path} does not exist!")
-        user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][level][idx]}"})
+        user_content.append({"type": "text", "text": f"Your task: {prompts_dict[mode]['hints'][level][idx-1]}"})
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
     
