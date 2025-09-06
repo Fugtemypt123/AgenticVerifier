@@ -1048,7 +1048,7 @@ def crop_and_generate_3d_asset(
         logging.error(f"Failed to crop and generate 3D asset: {e}")
         return {"status": "error", "error": str(e)}
 
-def render_scene_for_test(blender_path: str, test_name: str, output_dir: str = "output/test/renders") -> dict:
+def render_scene_for_test(blender_path: str, test_name: str, output_dir: str = "output/test/demo/renders") -> dict:
     """
     为测试渲染当前场景
     
@@ -1071,9 +1071,9 @@ def render_scene_for_test(blender_path: str, test_name: str, output_dir: str = "
         
         # 设置渲染参数
         scene = bpy.context.scene
-        scene.render.resolution_x = 1920
-        scene.render.resolution_y = 1080
-        scene.render.resolution_percentage = 50  # 50%分辨率以加快渲染速度
+        scene.render.resolution_x = 1024
+        scene.render.resolution_y = 1024
+        # scene.render.resolution_percentage = 50  # 50%分辨率以加快渲染速度
         scene.render.filepath = output_path
         
         # 设置渲染引擎为Cycles（如果可用）或Eevee
@@ -1091,6 +1091,10 @@ def render_scene_for_test(blender_path: str, test_name: str, output_dir: str = "
             camera.rotation_euler = (1.1, 0, 0.785)  # 设置相机角度
             scene.camera = camera
             print(f"[Render] Created camera for {test_name}")
+            
+        # 否则，设置Camera1为渲染相机
+        else:
+            scene.camera = bpy.data.objects['Camera1']
         
         # 渲染场景
         print(f"[Render] Rendering scene for {test_name}...")
