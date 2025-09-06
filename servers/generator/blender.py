@@ -19,6 +19,7 @@ import bpy
 import math
 import cv2
 import numpy as np
+import time
 
 mcp = FastMCP("blender-executor")
 
@@ -41,7 +42,6 @@ class MeshyAPI:
         self.base_url = "https://api.meshy.ai"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
         }
 
     def create_text_to_3d_preview(self, prompt: str, **kwargs) -> str:
@@ -49,7 +49,7 @@ class MeshyAPI:
         创建 Text-to-3D 预览任务（无贴图）
         Returns: task_id (str)
         """
-        url = f"{self.base_url}/openapi/v1/text-to-3d"
+        url = f"{self.base_url}/openapi/v2/text-to-3d"
         payload = {
             "mode": "preview",
             "prompt": prompt[:600],
@@ -1048,6 +1048,71 @@ def crop_and_generate_3d_asset(
         logging.error(f"Failed to crop and generate 3D asset: {e}")
         return {"status": "error", "error": str(e)}
 
+def render_scene_for_test(blender_path: str, test_name: str, output_dir: str = "output/test/renders") -> dict:
+    """
+    为测试渲染当前场景
+    
+    Args:
+        blender_path: Blender文件路径
+        test_name: 测试名称，用于生成输出文件名
+        output_dir: 输出目录
+        
+    Returns:
+        dict: 渲染结果
+    """
+    try:
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 生成输出文件名
+        # timestamp = int(time.time())
+        output_filename = blender_path.split("/")[-1].split(".")[0] + ".png"
+        output_path = os.path.join(output_dir, output_filename)
+        
+        # 设置渲染参数
+        scene = bpy.context.scene
+        scene.render.resolution_x = 1920
+        scene.render.resolution_y = 1080
+        scene.render.resolution_percentage = 50  # 50%分辨率以加快渲染速度
+        scene.render.filepath = output_path
+        
+        # 设置渲染引擎为Cycles（如果可用）或Eevee
+        if 'CYCLES' in bpy.context.scene.render.engine:
+            scene.render.engine = 'CYCLES'
+            scene.cycles.samples = 32  # 减少采样数以加快渲染
+        else:
+            scene.render.engine = 'BLENDER_EEVEE'
+        
+        # 确保有相机
+        if not any(obj.type == 'CAMERA' for obj in scene.objects):
+            # 如果没有相机，创建一个
+            bpy.ops.object.camera_add(location=(5, -5, 3))
+            camera = bpy.context.active_object
+            camera.rotation_euler = (1.1, 0, 0.785)  # 设置相机角度
+            scene.camera = camera
+            print(f"[Render] Created camera for {test_name}")
+        
+        # 渲染场景
+        print(f"[Render] Rendering scene for {test_name}...")
+        bpy.ops.render.render(write_still=True)
+        
+        print(f"[Render] ✓ Scene rendered successfully: {output_path}")
+        
+        return {
+            "status": "success",
+            "message": f"Scene rendered for {test_name}",
+            "output_path": output_path,
+            "test_name": test_name
+        }
+        
+    except Exception as e:
+        print(f"[Render] ❌ Failed to render scene for {test_name}: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "test_name": test_name
+        }
+
 def test_meshy_assets() -> dict:
     """
     测试 Meshy 资产生成功能：
@@ -1057,8 +1122,8 @@ def test_meshy_assets() -> dict:
     print("🧪 Testing Meshy Asset Generation Functions...")
     
     # 测试配置
-    test_blender_path = "test_output/test_scene.blend"
-    test_image_path = "test_input/test_image.jpg"
+    test_blender_path = "output/test/demo/blender_file.blend"
+    test_image_path = "output/test/demo/test_image.jpg"
     
     # 确保测试目录存在
     os.makedirs(os.path.dirname(test_blender_path), exist_ok=True)
@@ -1066,14 +1131,19 @@ def test_meshy_assets() -> dict:
     
     # 创建测试用的Blender文件
     try:
-        # 创建一个简单的测试场景
-        bpy.ops.wm.new_mainfile()
-        bpy.ops.mesh.primitive_cube_add(location=(0, 0, 0))
-        bpy.ops.wm.save_mainfile(filepath=test_blender_path)
-        print(f"✓ Created test Blender file: {test_blender_path}")
+        # 打开现有的blender文件
+        bpy.ops.wm.open_mainfile(filepath=test_blender_path)
+        print(f"✓ Opened test Blender file: {test_blender_path}")
+        
+        # 渲染初始场景
+        print("\n📸 Rendering initial scene...")
+        initial_render = render_scene_for_test(test_blender_path, "initial_scene")
+        if initial_render.get("status") == "success":
+            print(f"✓ Initial scene rendered: {initial_render.get('output_path')}")
+        
     except Exception as e:
-        print(f"⚠ Warning: Could not create test Blender file: {e}")
-        return {"status": "error", "error": f"Failed to create test Blender file: {e}"}
+        print(f"⚠ Warning: Could not open test Blender file: {e}")
+        return {"status": "error", "error": f"Failed to open test Blender file: {e}"}
     
     # 创建测试图片（如果不存在）
     if not os.path.exists(test_image_path):
@@ -1125,6 +1195,12 @@ def test_meshy_assets() -> dict:
                     "message": result.get("message"),
                     "object_name": result.get("object_name")
                 }
+                
+                # 渲染场景以查看添加的物体
+                render_result = render_scene_for_test(test_blender_path, "text_to_3d")
+                if render_result.get("status") == "success":
+                    test_results["text_to_3d"]["render_path"] = render_result.get("output_path")
+                    print(f"✓ Rendered scene after Text-to-3D: {render_result.get('output_path')}")
             else:
                 print(f"❌ Text-to-3D test failed: {result.get('error')}")
                 test_results["text_to_3d"] = {
@@ -1164,6 +1240,12 @@ def test_meshy_assets() -> dict:
                     "message": result.get("message"),
                     "object_name": result.get("object_name")
                 }
+                
+                # 渲染场景以查看添加的物体
+                render_result = render_scene_for_test(test_blender_path, "image_to_3d")
+                if render_result.get("status") == "success":
+                    test_results["image_to_3d"]["render_path"] = render_result.get("output_path")
+                    print(f"✓ Rendered scene after Image-to-3D: {render_result.get('output_path')}")
             else:
                 print(f"❌ Image-to-3D test failed: {result.get('error')}")
                 test_results["image_to_3d"] = {
@@ -1196,7 +1278,7 @@ def test_meshy_assets() -> dict:
             if result.get("status") == "success":
                 print(f"✓ Image cropping test successful: {result.get('message')}")
                 test_results["crop_image"] = {
-            "status": "success",
+                    "status": "success",
                     "message": result.get("message"),
                     "output_image": result.get("output_image")
                 }
@@ -1241,11 +1323,17 @@ def test_meshy_assets() -> dict:
             if result.get("status") == "success":
                 print(f"✓ Combined test successful: {result.get('message')}")
                 test_results["crop_and_generate"] = {
-                    "status": "success",
+            "status": "success",
                     "message": result.get("message"),
                     "crop_result": result.get("crop_result"),
                     "generation_result": result.get("generation_result")
                 }
+                
+                # 渲染场景以查看添加的物体
+                render_result = render_scene_for_test(test_blender_path, "crop_and_generate")
+                if render_result.get("status") == "success":
+                    test_results["crop_and_generate"]["render_path"] = render_result.get("output_path")
+                    print(f"✓ Rendered scene after Combined test: {render_result.get('output_path')}")
             else:
                 print(f"❌ Combined test failed: {result.get('error')}")
                 test_results["crop_and_generate"] = {
@@ -1273,6 +1361,8 @@ def test_meshy_assets() -> dict:
         
         if status == "success":
             print(f"✅ {test_name}: SUCCESS - {message}")
+            if "render_path" in result:
+                print(f"   📸 Render saved: {result['render_path']}")
             success_count += 1
         elif status == "skipped":
             print(f"⏭️ {test_name}: SKIPPED - {message}")
@@ -1283,17 +1373,6 @@ def test_meshy_assets() -> dict:
     
     print("=" * 50)
     print(f"Tests completed: {success_count}/{total_tests} successful")
-    
-    # 清理测试文件
-    try:
-        if os.path.exists(test_blender_path):
-            os.remove(test_blender_path)
-            print(f"✓ Cleaned up test Blender file")
-        if os.path.exists(test_image_path):
-            os.remove(test_image_path)
-            print(f"✓ Cleaned up test image file")
-    except Exception as e:
-        print(f"⚠ Warning: Could not clean up test files: {e}")
     
     # 返回测试结果
     overall_success = success_count > 0 or all(r["status"] == "skipped" for r in test_results.values())
