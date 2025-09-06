@@ -313,7 +313,7 @@ class VerifierAgentClient:
 
 async def main():
     parser = argparse.ArgumentParser(description="Dual-agent interactive framework")
-    parser.add_argument("--mode", choices=["blendergym", "autopresent", "blendergym-hard", "demo"], default="blendergym", help="Choose 3D (Blender) or 2D (PPTX) mode")
+    parser.add_argument("--mode", choices=["blendergym", "autopresent", "blendergym-hard", "demo", "design2code"], default="blendergym", help="Choose 3D (Blender), 2D (PPTX), or Design2Code mode")
     parser.add_argument("--vision-model", default="gpt-4o", help="OpenAI vision model")
     parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY"), help="OpenAI API key")
     parser.add_argument("--openai-base-url", default=os.getenv("OPENAI_BASE_URL"), help="OpenAI-compatible API base URL")
@@ -342,6 +342,11 @@ async def main():
     # Tool server paths (for verifier)
     parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to image processing MCP server script")
     parser.add_argument("--scene-server-path", default="servers/verifier/scene.py", help="Path to scene investigation MCP server script")
+    parser.add_argument("--web-server-path", default="servers/verifier/web.py", help="Path to web comparison MCP server script")
+    
+    # HTML execution parameters (for generator)
+    parser.add_argument("--html-server-path", default="servers/generator/html.py", help="Path to HTML execution MCP server script")
+    parser.add_argument("--browser-command", default="google-chrome", help="Browser command for HTML screenshots")
     
     args = parser.parse_args()
 
@@ -397,6 +402,11 @@ async def main():
                 "slides_server_path": args.slides_server_path,
                 "output_dir": args.output_dir,
             })
+        elif args.mode == "design2code":
+            generator_params.update({
+                "html_server_path": args.html_server_path,
+                "output_dir": args.output_dir,
+            })
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -426,6 +436,12 @@ async def main():
                 "image_server_path": None,
                 "scene_server_path": args.scene_server_path, 
                 "blender_file": args.blender_file,
+            })
+        elif args.mode == "design2code":
+            verifier_params.update({
+                "image_server_path": None,
+                "scene_server_path": None,
+                "web_server_path": args.web_server_path,
             })
         else:
             raise NotImplementedError("Mode not implemented")

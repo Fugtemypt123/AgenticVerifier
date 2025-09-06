@@ -99,14 +99,22 @@ class ToolHandler:
             return {'text': f"Error executing tool: {str(e)}", 'success': False}
     
     async def execute_script(self, code: str, round_num: int = None) -> Dict[str, Any]:
-        """Execute Blender Python code directly (not as a tool call)."""
+        """Execute code directly (Blender Python, HTML, etc.)."""
         try:
-            # Execute the Blender Python code
-            result = await self.tool_client.exec_script(
-                server_type=self.server_type,
-                code=code,
-                round_num=round_num or 1,
-            )
+            if self.server_type == "html":
+                # Execute HTML code
+                result = await self.tool_client.exec_script(
+                    server_type=self.server_type,
+                    code=code,
+                    round_num=round_num or 1,
+                )
+            else:
+                # Execute Blender Python code
+                result = await self.tool_client.exec_script(
+                    server_type=self.server_type,
+                    code=code,
+                    round_num=round_num or 1,
+                )
             return result
         except Exception as e:
             return {'text': f"Error executing script: {str(e)}", 'success': False}
@@ -142,6 +150,20 @@ class ToolHandler:
                     "path2": target_image_path
                 })
                 return {'text': output.get('description', ''), 'image': None}
+            elif function_name == "compare_designs":
+                output = await self.tool_client.call_tool("web", "compare_designs", {
+                    "generated_path": current_image_path,
+                    "target_path": target_image_path
+                })
+                if output.get("status") == "success":
+                    result = output.get("result", {})
+                    return {'text': result.get('comparison', ''), 'image': None}
+                else:
+                    return {'text': f"Comparison failed: {output.get('error', 'Unknown error')}", 'image': None}
+            elif function_name == "analyze_html_structure":
+                # Extract HTML code from the current context (this would need to be passed in)
+                # For now, return a placeholder
+                return {'text': "HTML structure analysis not yet implemented", 'image': None}
             else:
                 return {'text': f"Unknown tool: {function_name}", 'image': None}
         except Exception as e:

@@ -2,6 +2,7 @@ from .autopresent import *
 from .blendergym import *
 from .blendergym_hard import *
 from .demo import *
+from .design2code import *
 
 prompts_dict = {
     'blendergym': {
@@ -40,5 +41,16 @@ prompts_dict = {
             'verifier': blendergym_hard_verifier_format_dict
         },
         'hints': blendergym_hard_hints
+    },
+    'design2code': {
+        'system': {
+            'generator': design2code_generator_system,
+            'verifier': design2code_verifier_system
+        },
+        'format': {
+            'generator': design2code_generator_format,
+            'verifier': design2code_verifier_format
+        },
+        'hints': design2code_hints
     },
 }

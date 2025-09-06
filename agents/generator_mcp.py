@@ -33,7 +33,8 @@ class GeneratorAgent:
                  slides_server_path: Optional[str] = None,
                  output_dir: Optional[str] = None,
                  api_base_url: Optional[str] = None,
-                 blender_file_path: Optional[str] = None):
+                 blender_file_path: Optional[str] = None,
+                 html_server_path: Optional[str] = None):
         """
         Initialize the Generator Agent.
         """
@@ -64,6 +65,9 @@ class GeneratorAgent:
         elif mode == "autopresent":
             self.server_type = "slides"
             self.server_path = slides_server_path
+        elif mode == "design2code":
+            self.server_type = "html"
+            self.server_path = html_server_path
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -78,6 +82,8 @@ class GeneratorAgent:
             self.memory = self.prompt_builder.build_autopresent_generator_prompt(mode, init_code_path, init_image_path, target_description)
         elif mode == "blendergym-hard":
             self.memory = self.prompt_builder.build_blendergym_hard_generator_prompt(mode, task_name, init_code_path, init_image_path, target_image_path, blender_file_path, target_description)
+        elif mode == "design2code":
+            self.memory = self.prompt_builder.build_design2code_generator_prompt(mode, init_image_path, target_description)
         else:
             raise NotImplementedError("Mode not implemented")
     
@@ -291,6 +297,8 @@ def main():
         slides_server_path: str = None,
         output_dir: str = None,
         api_base_url: Optional[str] = None,
+        # HTML executor parameters
+        html_server_path: str = None,
     ) -> dict:
         """
         Initialize a new Generator Agent with optional Blender or Slides executor setup.
@@ -312,6 +320,7 @@ def main():
                 output_dir=output_dir,
                 api_base_url=api_base_url,
                 blender_file_path=blender_file,
+                html_server_path=html_server_path,
             )
             agent_holder['agent'] = agent
             
@@ -342,6 +351,16 @@ def main():
                     setup_results.append(("Slides", setup_result))
                 except Exception as e:
                     setup_results.append(("Slides", {"status": "error", "error": str(e)}))
+            
+            # Setup HTML executor if parameters are provided
+            elif mode == "design2code":
+                try:
+                    setup_result = await agent.setup_executor(
+                        output_dir=output_dir
+                    )
+                    setup_results.append(("HTML", setup_result))
+                except Exception as e:
+                    setup_results.append(("HTML", {"status": "error", "error": str(e)}))
             
             else:
                 raise NotImplementedError("Mode not implemented")

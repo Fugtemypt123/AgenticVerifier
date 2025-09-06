@@ -1,12 +1,13 @@
 # AgenticVerifier
 
-MCP-based agent library for dual-agent (Generator/Verifier) interactive frameworks, supporting both 3D (Blender) and 2D (PPTX) modes. Plug and play for automated code generation, execution, and verification workflows.
+MCP-based agent library for dual-agent (Generator/Verifier) interactive frameworks, supporting 3D (Blender), 2D (PPTX), and Design2Code (HTML/CSS) modes. Plug and play for automated code generation, execution, and verification workflows.
 
 ## Overview
 
 AgenticVerifier is a multi-agent system for iterative code generation and verification. It supports:
 - 3D scene generation and validation using Blender
 - 2D slide (PPTX) generation and validation
+- **Design2Code**: Convert visual designs to HTML/CSS code
 - Automated feedback loop between Generator and Verifier agents
 - MCP stdio-based agent communication (no manual server setup required)
 - **Seamless extensibility**: Can easily add any new server types
@@ -42,6 +43,11 @@ AgenticVerifier is a multi-agent system for iterative code generation and verifi
 │  │  │   Server    │ │  Server  │  │   Server  │  │   Server  │ │ │
 │  │  │   (MCP)     │ │  (MCP)   │  │   (MCP)   │  │   (MCP)   │ │ │
 │  │  └─────────────┘ └──────────┘  └───────────┘  └───────────┘ │ │
+│  │  ┌─────────────┐ ┌──────────┐                                │ │
+│  │  │    HTML     │ │   Web    │                                │ │
+│  │  │   Server    │ │  Server  │                                │ │
+│  │  │   (MCP)     │ │  (MCP)   │                                │ │
+│  │  └─────────────┘ └──────────┘                                │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 └─────────────────────────-────────────────────────────────────────┘
@@ -198,12 +204,22 @@ python main.py \
   --target-image-path data/autopresent/target \
   --max-rounds 10 \
   --output-dir output
+
+# For design2code mode (HTML/CSS generation)
+python main.py \
+  --mode design2code \
+  --init-image-path data/design2code/example/design.png \
+  --target-description data/design2code/example/description.txt \
+  --max-rounds 5 \
+  --output-dir output
 ```
 
 **Available arguments:**
-- `--mode`: Choose `blendergym`, `autopresent`, `blendergym-hard`, or `demo`
-- `--init-code-path`: Path to the initial code file (**required**)
+- `--mode`: Choose `blendergym`, `autopresent`, `blendergym-hard`, `demo`, or `design2code`
+- `--init-code-path`: Path to the initial code file (**required for blendergym/autopresent**)
+- `--init-image-path`: Path to design screenshot (**required for design2code**)
 - `--target-image-path`: Directory of target images
+- `--target-description`: Path to description file or direct description text
 - `--max-rounds`: Maximum number of interaction rounds (default: 10)
 - `--output-dir`: Output directory (default: `output`)
 - `--task-name`: Task name for hints extraction (default: `blendshape`)
@@ -257,6 +273,100 @@ python evaluators/autopresent/gather.py 20250817_035024
 
 The gather script processes the intermediate evaluation results and generates a comprehensive summary.
 
+## Design2Code Mode
+
+The Design2Code mode enables the dual-agent system to convert visual designs (screenshots) into clean, semantic HTML and CSS code. This implementation is inspired by the [Design2Code benchmark](https://github.com/NoviScl/Design2Code) and provides a complete pipeline for:
+
+1. **Generator Agent**: Analyzes design screenshots and generates HTML/CSS code
+2. **Verifier Agent**: Compares generated webpages with target designs and provides feedback
+3. **HTML Execution**: Renders HTML code and generates screenshots for comparison
+4. **Visual Comparison**: Uses AI vision models to compare designs and provide detailed feedback
+
+### Features
+
+#### Generator Agent Features
+- **Design Analysis**: Analyzes design screenshots to understand layout, colors, typography
+- **HTML Generation**: Creates semantic, accessible HTML5 code
+- **CSS Styling**: Generates modern CSS with responsive design
+- **Best Practices**: Follows web standards and accessibility guidelines
+
+#### Verifier Agent Features
+- **Visual Comparison**: Compares generated webpages with target designs
+- **Layout Analysis**: Checks positioning, spacing, and structure
+- **Code Quality**: Analyzes HTML structure and CSS organization
+- **Accessibility**: Verifies semantic structure and accessibility features
+
+#### HTML Execution Server
+- **Screenshot Generation**: Uses headless browser to capture webpage screenshots
+- **Image Optimization**: Optimizes screenshots for comparison
+- **Multi-browser Support**: Supports Chrome, Chromium, Firefox
+- **Error Handling**: Robust error handling and fallback options
+
+#### Web Comparison Server
+- **AI-powered Comparison**: Uses vision models for detailed design comparison
+- **Difference Highlighting**: Highlights visual differences between designs
+- **Similarity Scoring**: Provides quantitative similarity scores
+- **Detailed Feedback**: Generates actionable feedback for improvements
+
+### Usage
+
+```bash
+# Basic usage
+python main.py \
+    --mode design2code \
+    --init-image-path data/design2code/example/design.png \
+    --target-description data/design2code/example/description.txt \
+    --output-dir output/design2code_test \
+    --max-rounds 5
+
+# With custom browser
+python main.py \
+    --mode design2code \
+    --init-image-path path/to/design.png \
+    --target-description "Create a modern landing page" \
+    --browser-command chromium-browser \
+    --max-rounds 3
+```
+
+### Test Script
+
+Use the provided test script to quickly test the functionality:
+
+```bash
+python test_design2code.py
+```
+
+This script will:
+1. Create a sample design image if needed
+2. Set up test parameters
+3. Run the Design2Code pipeline
+4. Generate HTML files and screenshots
+
+### Requirements
+
+- **Browser**: Chrome/Chromium for HTML screenshots
+- **API Key**: OpenAI API key for vision models
+- **Dependencies**: PIL, numpy, requests
+
+### Browser Setup
+
+Install Chrome on Ubuntu:
+```bash
+wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+sudo apt update
+sudo apt install google-chrome-stable
+```
+
+### Example Workflow
+
+1. **Input**: Design screenshot + description
+2. **Generation**: Generator creates HTML/CSS code
+3. **Execution**: HTML server renders code and takes screenshot
+4. **Verification**: Verifier compares with target design
+5. **Feedback**: Detailed feedback for improvements
+6. **Iteration**: Process repeats until satisfactory result
+
 ## Advanced Usage
 
 ### Custom Agent Development
@@ -299,12 +409,13 @@ async def custom_tool(param: str) -> dict:
 - **Recommended approach**: Use the new MCP-based `main.py` for easier setup and better resource management
 - 3D mode requires Blender installed and available in your system PATH
 - 2D PPTX mode requires `unoconv` and LibreOffice  
+- **Design2Code mode requires Chrome/Chromium browser for HTML screenshots**
 - The OpenAI API key must be set as the `OPENAI_API_KEY` environment variable
 - Python 3.8+ is recommended
 - Start with individual component testing before running the full system
 - Agent communication is now handled via MCP stdio (no HTTP servers needed for agents)
-- Executor servers (Blender, Slides) still use HTTP and need to be started separately
-- Tool servers (Image, Scene) are automatically connected via MCP
+- Executor servers (Blender, Slides, HTML) still use HTTP and need to be started separately
+- Tool servers (Image, Scene, Web) are automatically connected via MCP
 
 ## Contributing
 

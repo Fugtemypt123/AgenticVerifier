@@ -114,5 +114,19 @@ class ToolManager:
                 }]
             else:
                 return []
+        elif mode == "design2code":
+            return [{
+                "type": "function",
+                "function": {
+                    "name": "compare_designs",
+                    "description": "Compare the generated HTML webpage screenshot with the target design image and provide detailed feedback on visual differences, layout accuracy, and design compliance."
+                }
+            }, {
+                "type": "function", 
+                "function": {
+                    "name": "analyze_html_structure",
+                    "description": "Analyze the HTML/CSS code structure and provide feedback on code quality, best practices, accessibility, and potential improvements."
+                }
+            }]
         else:
             return []

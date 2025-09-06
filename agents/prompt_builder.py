@@ -301,3 +301,64 @@ class PromptBuilder:
             
         full_prompt.append({"role": "user", "content": user_content})
         return full_prompt
+    
+    def build_design2code_generator_prompt(self, 
+                                         mode: str,
+                                         init_image_path: str,
+                                         target_description: str = None) -> List[Dict]:
+        """Build the system prompt for the generator for design2code mode."""
+        full_prompt = []
+        # Add system prompt
+        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['generator']})
+        
+        user_content = []
+        
+        # Add design screenshot
+        if os.path.exists(init_image_path):
+            user_content.append({"type": "text", "text": "Design Screenshot:"})
+            user_content.append({"type": "image_url", "image_url": {"url": self._get_image_base64(init_image_path)}})
+        else:
+            raise ValueError(f"Design image {init_image_path} does not exist!")
+        
+        # Add target description if provided
+        if target_description:
+            user_content.append({"type": "text", "text": f"Additional Requirements:\n{target_description}"})
+        
+        # Add hints
+        user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']}"})
+        
+        # Add output format
+        user_content.append({"type": "text", "text": prompts_dict[mode]['format']['generator']})
+        
+        # Add all user content
+        full_prompt.append({"role": "user", "content": user_content})
+        return full_prompt
+    
+    def build_design2code_verifier_prompt(self, 
+                                        mode: str,
+                                        target_image_path: str,
+                                        target_description: str = None) -> List[Dict]:
+        """Build the system prompt for the verifier for design2code mode."""
+        full_prompt = []
+        # System prompt
+        full_prompt.append({"role": "system", "content": prompts_dict[mode]['system']['verifier']})
+        user_content = []
+        
+        # Add target design image
+        if os.path.exists(target_image_path):
+            user_content.extend([
+                {"type": "text", "text": "Target Design:"},
+                {"type": "image_url", "image_url": {"url": self._get_image_base64(target_image_path)}}
+            ])
+        else:
+            raise ValueError(f"Target design image {target_image_path} does not exist!")
+        
+        # Add target description if provided
+        if target_description:
+            user_content.append({"type": "text", "text": f"Additional Requirements:\n{target_description}"})
+        
+        # Add hints
+        user_content.append({"type": "text", "text": f"Hints:\n{prompts_dict[mode]['hints']}"})
+        
+        full_prompt.append({"role": "user", "content": user_content})
+        return full_prompt

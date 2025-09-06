@@ -25,7 +25,8 @@ class VerifierAgent:
                  image_server_path: Optional[str] = None,
                  scene_server_path: Optional[str] = None,
                  api_base_url: Optional[str] = None,
-                 blender_file_path: Optional[str] = None):
+                 blender_file_path: Optional[str] = None,
+                 web_server_path: Optional[str] = None):
         self.mode = mode
         self.vision_model = vision_model
         self.api_key = api_key
@@ -53,6 +54,9 @@ class VerifierAgent:
         elif mode == "blendergym-hard":
             self.server_type = "scene"
             self.server_path = scene_server_path
+        elif mode == "design2code":
+            self.server_type = "web"
+            self.server_path = web_server_path
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -66,6 +70,8 @@ class VerifierAgent:
             self.memory = self.prompt_builder.build_autopresent_verifier_prompt(mode, target_description)
         elif mode == "blendergym-hard":
             self.memory = self.prompt_builder.build_blendergym_hard_verifier_prompt(mode, task_name, target_image_path, blender_file_path, target_description)
+        elif mode == "design2code":
+            self.memory = self.prompt_builder.build_design2code_verifier_prompt(mode, target_image_path, target_description)
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -75,6 +81,8 @@ class VerifierAgent:
                 await self.tool_client.connect_server("image", self.server_path, self.api_key)
             elif self.server_type == "scene":
                 await self.tool_client.connect_server("scene", self.server_path)
+            elif self.server_type == "web":
+                await self.tool_client.connect_server("web", self.server_path, self.api_key)
             self._tools_connected = True
             
     async def setup_executor(self, **kwargs):
@@ -90,6 +98,9 @@ class VerifierAgent:
                 "thoughtprocess_save": save_dir,
                 "blender_path": blender_file,
             })
+            return result
+        elif self.server_type == "web":
+            result = await self.tool_client.initialize_executor("web", **kwargs)
             return result
         return {"status": "success", "message": "No executor setup needed for this mode."}
         
@@ -155,6 +166,13 @@ class VerifierAgent:
                 ])
             verify_message["content"].extend(scene_content)
             verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier'][level]})
+            self.memory.append(verify_message)
+        elif self.mode == "design2code":
+            verify_message = {"role": "user", "content": [{"type": "text", "text": f"Please analyze the generated HTML code and compare it with the target design:\nCode: {code}"}]}
+            if os.path.exists(render_path):
+                verify_message["content"].append({"type": "text", "text": f"Generated webpage screenshot:"})
+                verify_message["content"].append({"type": "image_url", "image_url": {"url": self.prompt_builder._get_image_base64(render_path)}})
+            verify_message["content"].append({"type": "text", "text": prompts_dict[self.mode]['format']['verifier']})
             self.memory.append(verify_message)
         else:
             raise NotImplementedError("Mode not implemented")
@@ -247,6 +265,7 @@ def main():
         scene_server_path: Optional[str] = None,
         blender_file: Optional[str] = None,
         api_base_url: Optional[str] = None,
+        web_server_path: Optional[str] = None,
     ) -> dict:
         
         try:
@@ -262,7 +281,8 @@ def main():
                 image_server_path=image_server_path,
                 scene_server_path=scene_server_path,
                 api_base_url=api_base_url,
-                blender_file_path=blender_file
+                blender_file_path=blender_file,
+                web_server_path=web_server_path
             )
             agent_holder['agent'] = agent
             # Initialize server executor
@@ -274,6 +294,10 @@ def main():
                 setup_result = await agent.setup_executor(blender_file=blender_file, save_dir=thought_save)
                 if setup_result.get("status") != "success":
                     return {"status": "error", "error": f"Scene server setup failed: {setup_result.get('error', setup_result)}"}
+            elif mode == "design2code":
+                setup_result = await agent.setup_executor(vision_model=vision_model, api_key=api_key, api_base_url=api_base_url)
+                if setup_result.get("status") != "success":
+                    return {"status": "error", "error": f"Web server setup failed: {setup_result.get('error', setup_result)}"}
             await agent._ensure_tools_connected()
             return {"status": "success", "message": "Verifier Agent initialized and tool servers connected"}
         except Exception as e:
