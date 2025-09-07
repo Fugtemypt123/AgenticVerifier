@@ -83,7 +83,7 @@ class GeneratorAgent:
         elif mode == "blendergym-hard":
             self.memory = self.prompt_builder.build_blendergym_hard_generator_prompt(mode, task_name, init_code_path, init_image_path, target_image_path, blender_file_path, target_description)
         elif mode == "design2code":
-            self.memory = self.prompt_builder.build_design2code_generator_prompt(mode, init_image_path, target_description)
+            self.memory = self.prompt_builder.build_design2code_generator_prompt(mode, init_code_path, target_image_path)
         else:
             raise NotImplementedError("Mode not implemented")
     

@@ -205,14 +205,7 @@ def cleanup_executor() -> dict:
         return {"status": "success", "message": "HTML executor cleaned up"}
     except Exception as e:
         return {"status": "error", "error": str(e)}
-
-def main():
-    """Main function to run the HTML executor as an MCP server."""
-    mcp.run(transport="stdio")
-
-if __name__ == "__main__":
-    main()
-
+    
 def test_execute_test_html(test_html_path: Optional[str] = None,
                            output_dir: Optional[str] = None,
                            browser_command: str = "google-chrome") -> Dict:
@@ -269,3 +262,16 @@ def test_execute_test_html(test_html_path: Optional[str] = None,
     except Exception as e:
         logging.exception("Unexpected error running HTML executor test")
         return {"status": "error", "error": str(e)}
+
+def main():
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        test_result = test_execute_test_html(test_html_path="data/design2code/testset_final/6.html", output_dir="output/test/design2code/")
+        success = test_result.get("status") == "success"
+        print(f"\n🎯 Overall test result: {'PASSED' if success else 'FAILED'}")
+        sys.exit(0 if success else 1)
+    else:
+        mcp.run(transport="stdio")
+
+if __name__ == "__main__":
+    main()

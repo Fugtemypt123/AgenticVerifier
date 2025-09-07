@@ -48,15 +48,12 @@ class VerifierAgent:
         self._tools_connected = False
         self.task_name = task_name
         
-        if mode == "blendergym" or mode == "autopresent":
+        if mode == "blendergym" or mode == "autopresent" or mode == "design2code":
             self.server_type = "image"
             self.server_path = image_server_path
         elif mode == "blendergym-hard":
             self.server_type = "scene"
             self.server_path = scene_server_path
-        elif mode == "design2code":
-            self.server_type = "web"
-            self.server_path = web_server_path
         else:
             raise NotImplementedError("Mode not implemented")
         
@@ -71,7 +68,7 @@ class VerifierAgent:
         elif mode == "blendergym-hard":
             self.memory = self.prompt_builder.build_blendergym_hard_verifier_prompt(mode, task_name, target_image_path, blender_file_path, target_description)
         elif mode == "design2code":
-            self.memory = self.prompt_builder.build_design2code_verifier_prompt(mode, target_image_path, target_description)
+            self.memory = self.prompt_builder.build_design2code_verifier_prompt(mode, target_image_path)
         else:
             raise NotImplementedError("Mode not implemented")
         
