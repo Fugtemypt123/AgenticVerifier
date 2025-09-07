@@ -212,3 +212,60 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def test_execute_test_html(test_html_path: Optional[str] = None,
+                           output_dir: Optional[str] = None,
+                           browser_command: str = "google-chrome") -> Dict:
+    """
+    Test helper: execute a local test.html and produce a screenshot.
+
+    Args:
+        test_html_path: Path to the HTML file to execute. Defaults to
+            a "test.html" placed next to this file.
+        output_dir: Directory to write screenshots. Defaults to a temp dir
+            under the system temp root.
+        browser_command: Browser command to use (e.g., google-chrome/chromium/firefox).
+
+    Returns:
+        A dict containing status, message/error, and output paths when applicable.
+    """
+    try:
+        # Resolve defaults
+        if test_html_path is None:
+            test_html_path = str((Path(__file__).parent / "test.html").resolve())
+        if output_dir is None:
+            temp_root = tempfile.mkdtemp(prefix="design2code_test_output_")
+            output_dir = temp_root
+
+        if not os.path.exists(test_html_path):
+            return {
+                "status": "error",
+                "error": f"Test HTML not found: {test_html_path}"
+            }
+
+        # Read HTML
+        with open(test_html_path, "r", encoding="utf-8") as f:
+            html_code = f.read()
+
+        # Run executor directly
+        executor = HTMLExecutor(output_dir=output_dir, browser_command=browser_command)
+        result = executor.execute(html_code=html_code, round_num=1)
+
+        # Attach some helpful information
+        output = {
+            "status": result.get("status", "error"),
+            "details": result,
+            "output_dir": str(output_dir),
+            "test_html_path": test_html_path,
+        }
+
+        # Log a concise message
+        if output["status"] == "success":
+            logging.info(f"Test succeeded. Screenshot: {result.get('output')}")
+        else:
+            logging.error(f"Test failed: {result.get('error')}")
+
+        return output
+    except Exception as e:
+        logging.exception("Unexpected error running HTML executor test")
+        return {"status": "error", "error": str(e)}
