@@ -1,7 +1,6 @@
 from .autopresent import *
 from .blendergym import *
 from .blendergym_hard import *
-from .demo import *
 from .design2code import *
 
 prompts_dict = {

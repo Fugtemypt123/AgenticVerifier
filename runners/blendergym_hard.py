@@ -162,7 +162,7 @@ def load_blendergym_dataset(base_path: str, task_name: str, task_id: Optional[st
         
     # If task_id is not None, only run the task_id
     if task_id is not None:
-        task_dirs = [(base_path /  f"{task_name}{task_id}", task_name)]
+        task_dirs = [(base_path /  f"{task_name}/{task_id}", task_name + '-' + task_id[-1])]
     # Otherwise, run all tasks in the task_list
     else:
         task_dirs = []
@@ -342,7 +342,7 @@ def main():
     parser.add_argument("--output-dir", default=f"output/blendergym_hard/{time.strftime('%Y%m%d_%H%M%S')}", help="Output directory for results")
     
     # Task selection
-    parser.add_argument("--task", choices=['all', 'level1', 'level2', 'level3'], default='all', help="Specific task to run")
+    parser.add_argument("--task", choices=['all', 'level1', 'level2', 'level3', 'level4'], default='all', help="Specific task to run")
     parser.add_argument("--task-id", default=None, help="Specific task id to run (e.g., '1')")
     parser.add_argument("--test-id", default=None, help="Test ID to check for failed cases and retest them")
     

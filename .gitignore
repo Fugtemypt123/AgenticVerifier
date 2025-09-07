@@ -4,3 +4,4 @@ _*/
 *.json
 output
 .venv
+*.zip
