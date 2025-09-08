@@ -59,12 +59,13 @@ def load_design2code_dataset(dataset_dir: str, case_id: Optional[str] = None) ->
         return tasks
 
     for cid, html_path, png_path in pairs:
+        init_code_path = html_path.replace("testset_final", "initialize")
         tasks.append({
             "case_id": cid,
-            "init_code_path": html_path,
+            "init_code_path": init_code_path,
             "target_image_path": png_path,
         })
-        print(f"Found case: id={cid}")
+        print(f"Found case: id={cid}, html_path={init_code_path}, png_path={png_path}")
 
     return tasks
 
@@ -215,6 +216,10 @@ def main():
         sys.exit(1)
 
     print(f"Found {len(tasks)} cases")
+    
+    raise Exception("Stop here")
+    
+    tasks = tasks[:1]
 
     start_time = time.time()
 
