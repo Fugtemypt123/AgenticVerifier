@@ -342,7 +342,6 @@ async def main():
     # Tool server paths (for verifier)
     parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to image processing MCP server script")
     parser.add_argument("--scene-server-path", default="servers/verifier/scene.py", help="Path to scene investigation MCP server script")
-    parser.add_argument("--web-server-path", default="servers/verifier/web.py", help="Path to web comparison MCP server script")
     
     # HTML execution parameters (for generator)
     parser.add_argument("--html-server-path", default="servers/generator/html.py", help="Path to HTML execution MCP server script")
@@ -354,11 +353,12 @@ async def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Prepare target description
-    if os.path.exists(args.target_description):
-        with open(args.target_description, 'r') as f:
-            target_description = f.read().strip()
-    elif args.target_description:
-        target_description = args.target_description
+    if args.target_description:
+        if os.path.exists(args.target_description):
+            with open(args.target_description, 'r') as f:
+                target_description = f.read().strip()
+        else:
+            target_description = args.target_description
     else:
         target_description = None
 
@@ -426,7 +426,7 @@ async def main():
         }
         
         # Add mode-specific parameters
-        if args.mode == "blendergym" or args.mode == "autopresent":
+        if args.mode == "blendergym" or args.mode == "autopresent" or args.mode == "design2code":
             verifier_params.update({
                 "image_server_path": args.image_server_path,
                 "scene_server_path": None
@@ -436,12 +436,6 @@ async def main():
                 "image_server_path": None,
                 "scene_server_path": args.scene_server_path, 
                 "blender_file": args.blender_file,
-            })
-        elif args.mode == "design2code":
-            verifier_params.update({
-                "image_server_path": None,
-                "scene_server_path": None,
-                "web_server_path": args.web_server_path,
             })
         else:
             raise NotImplementedError("Mode not implemented")

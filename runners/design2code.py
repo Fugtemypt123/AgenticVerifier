@@ -105,7 +105,7 @@ def run_design2code_task(task_config: Dict, args) -> tuple:
         "--html-server-path", args.html_server_path,
         "--browser-command", args.browser_command,
         # Web comparison server path (verifier)
-        "--web-server-path", args.web_server_path,
+        "--image-server-path", args.image_server_path,
     ]
 
     print(f"Command: {' '.join(cmd)}")
@@ -192,7 +192,7 @@ def main():
     parser.add_argument("--browser-command", default="google-chrome", help="Browser command for HTML screenshots")
 
     # Web comparison server path (verifier)
-    parser.add_argument("--web-server-path", default="servers/verifier/web.py", help="Path to web comparison MCP server script")
+    parser.add_argument("--image-server-path", default="servers/verifier/image.py", help="Path to web comparison MCP server script")
 
     # Parallel execution parameters
     parser.add_argument("--max-workers", type=int, default=8, help="Maximum number of parallel workers")
@@ -216,8 +216,6 @@ def main():
         sys.exit(1)
 
     print(f"Found {len(tasks)} cases")
-    
-    raise Exception("Stop here")
     
     tasks = tasks[:1]
 

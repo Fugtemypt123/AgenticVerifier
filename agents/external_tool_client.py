@@ -123,6 +123,9 @@ class ExternalToolClient:
         elif server_type == "slides":
             tool_name = "exec_pptx"
             tool_args = {"code": code, "round": round_num, "code_save": kwargs.get("code_save")}
+        elif server_type == "html":
+            tool_name = "exec_html"
+            tool_args = {"code": code, "round": round_num}
         else:
             raise ValueError(f"Unknown server_type: {server_type}")
         try:

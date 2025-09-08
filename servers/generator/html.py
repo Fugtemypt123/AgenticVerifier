@@ -173,13 +173,13 @@ def initialize_executor(output_dir: str, browser_command: str = "google-chrome")
         return {"status": "error", "error": str(e)}
 
 @mcp.tool()
-def execute_html(html_code: str, round_num: int) -> dict:
+def exec_html(code: str, round: int) -> dict:
     """
     Execute HTML code and generate screenshot.
     
     Args:
-        html_code: The HTML/CSS code to execute
-        round_num: Round number for file naming
+        code: The HTML/CSS code to execute
+        round: Round number for file naming
     """
     global _executor
     if _executor is None:
@@ -189,7 +189,7 @@ def execute_html(html_code: str, round_num: int) -> dict:
         }
     
     try:
-        result = _executor.execute(html_code, round_num)
+        result = _executor.execute(code, round)
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -266,7 +266,7 @@ def test_execute_test_html(test_html_path: Optional[str] = None,
 def main():
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
-        test_result = test_execute_test_html(test_html_path="data/design2code/testset_final/6.html", output_dir="output/test/design2code/")
+        test_result = test_execute_test_html(test_html_path="code_test.html", output_dir="output/test/design2code/")
         success = test_result.get("status") == "success"
         print(f"\n🎯 Overall test result: {'PASSED' if success else 'FAILED'}")
         sys.exit(0 if success else 1)
